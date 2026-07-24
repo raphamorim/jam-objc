@@ -67,3 +67,62 @@ tfn getClassMissing() {
         Option(Class).None        { assert(1, 1); }
     }
 }
+
+// --- class.zig / object.zig: msgSend basics ----------------------------------
+
+tfn allocInitDealloc() {
+    const NSObject: Class = mustClass("NSObject");
+
+    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
+    assert((obj.value != 0) as u8, 1);
+    assert(eq(obj.getClassName(), "NSObject") as u8, 1);
+    obj.msgSend0(sel("init"));
+    obj.msgSend0(sel("dealloc"));
+}
+
+tfn objectGetClass() {
+    const NSObject: Class = mustClass("NSObject");
+    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
+    obj.msgSend0(sel("init"));
+
+    match (obj.getClass()) {
+        Option(Class).Some(cls) { assert((cls.value == NSObject.value) as u8, 1); }
+        Option(Class).None      { assert(0, 1); }
+    }
+    obj.msgSend0(sel("dealloc"));
+}
+
+// --- object.zig: retain/release ----------------------------------------------
+
+tfn retainRelease() {
+    const NSObject: Class = mustClass("NSObject");
+    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
+    obj.msgSend0(sel("init"));
+    assert(retainCount(obj), 1);
+
+    obj.retain();
+    assert(retainCount(obj), 2);
+
+    obj.release();
+    assert(retainCount(obj), 1);
+
+    obj.msgSend0(sel("dealloc"));
+}
+
+// --- object.zig: msgSend with wrapper args -----------------------------------
+
+tfn msgSendWithClassAndSelArgs() {
+    const NSObject: Class = mustClass("NSObject");
+    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
+    obj.msgSend0(sel("init"));
+
+    // -[NSObject isKindOfClass:]
+    const isKind: u64 = obj.msgSend1(sel("isKindOfClass:"), NSObject.value);
+    assert((isKind & 0xFF) as u8, 1);
+
+    // -[NSObject respondsToSelector:]
+    const responds: u64 = obj.msgSend1(sel("respondsToSelector:"), sel("init").value);
+    assert((responds & 0xFF) as u8, 1);
+
+    obj.msgSend0(sel("dealloc"));
+}
