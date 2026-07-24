@@ -1,8 +1,11 @@
 # The msgSend problem
 
-Why `objc.jam` has a zoo of `msgSend0`, `msgSend1`, `msgSendF0`, `msgSendD1`,
-`msgSendObj1`, … instead of one generic `msgSend`, what it would take to fix,
-and where that stands.
+Solved: `objc.jam` ships one generic `msgSend(R, sel, args...)`, built on
+two jam features that grew out of this document — the `@callC` intrinsic
+(`../jam/CALLC_PLAN.md`) and variadic `cfn` (`../jam/CFN_VARIADIC_PLAN.md`).
+The rest of this file is the design history: why the zoo of `msgSend0`,
+`msgSend1`, `msgSendF0`, `msgSendD1`, `msgSendObj1`, … existed, and how the
+options were weighed.
 
 ## The constraint
 
@@ -115,10 +118,10 @@ any of the three general subsystems the other two languages already had.
 
 | plan | new subsystem(s) needed | status | doc |
 |---|---|---|---|
-| **`@callC`** — a bespoke variadic intrinsic `@callC(R, fnAddr, args…)` that synthesizes the fixed signature from the args' *static* types at astgen and lowers to the (now C-ABI-correct) `CallIndirect`. | none — ~145 LOC, zero per-arity code in the compiler | **planned, recommended** | `../jam/CALLC_PLAN.md` |
-| **Variadic generics** (the Zig route) | tuples + variadic/`anytype` params + monomorphization-over-packs | **rejected** — ~370 LOC on top of `@callC`, byte-identical binary, eliminates *zero* wrappers | `../jam/VARIADICS_PLAN.md` |
-| **Macro system** (the Rust route) | a macro system **+ traits + tuple types** (three subsystems) | under evaluation — likely the largest, for the same one-library payoff | `../jam/MSGSEND_OPTIONS.md` |
-| **`cfn`-native expansion** | possibly variadic `cfn` (jam's `cfn` already emits code into the caller, like a macro, but isn't variadic) | under evaluation — the most jam-native candidate | `../jam/MSGSEND_OPTIONS.md` |
+| **`@callC`** — a bespoke variadic intrinsic `@callC(R, fnAddr, args…)` that synthesizes the fixed signature from the args' *static* types at astgen and lowers to `CallIndirect`. | none — zero per-arity code in the compiler | shipped | `../jam/CALLC_PLAN.md` |
+| **Variadic generics** (the Zig route) | tuples + variadic/`anytype` params + monomorphization-over-packs | rejected as a general feature | — |
+| **Macro system** (the Rust route) | a macro system **+ traits + tuple types** (three subsystems) | rejected — the largest, for a one-library payoff | — |
+| **`cfn`-native expansion** — a trailing `args: ...` pack on `cfn` methods, forward-only (`args...`), monomorphized per call-site shape | restricted variadic instantiation riding the existing generics machinery | shipped — this is the ergonomics layer | `../jam/CFN_VARIADIC_PLAN.md` |
 
 ### What `@callC` actually changes here
 
@@ -146,13 +149,29 @@ much larger feature). So with `@callC`, the suffixed wrappers may stay as
 ergonomic shorthand, but they stop being *fundamental* — they're a thin
 courtesy over one variadic primitive, not a hand-maintained ABI table.
 
-## Current direction
+## Outcome
 
-Build `@callC` (`../jam/CALLC_PLAN.md`). It removes the load-bearing part of the
-zoo for ~145 LOC and zero codegen risk, and makes the remaining wrappers
-optional. The bigger general features (variadic generics, a macro system) are
-not justified by this one library's ergonomics; see `../jam/VARIADICS_PLAN.md`
-and `../jam/MSGSEND_OPTIONS.md` for the full cost/benefit.
+Both layers shipped in `../jam`, and `objc.jam` was migrated:
+
+- the 9 `Sig*` unions, 12 `rawSend*` dispatch fns, and all ~25 suffixed
+  wrappers are **gone**;
+- `Object`/`Class` each expose one generic method, a variadic `cfn`
+  forwarding into `@callC`:
+
+  ```jam
+  pub cfn msgSend(self: Object, R: type, op: Sel, args: ...) R {
+      return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
+  }
+  ```
+
+- new signatures cost zero library code — `examples/window.jam`'s
+  NSRect-by-value sends (`SigInitRect`/`SigRect1` before) are now ordinary
+  `msgSend` calls, and the window still opens;
+- one caveat inherited from `@callC`'s aggregate guard: by-value aggregates
+  must be HFAs of ≤ 4 same-width floats or ≤ 2 full 64-bit words — anything
+  else is a compile error until `@callC`'s phase-4 ABI work (CALLC_PLAN.md
+  §4). Every Cocoa struct in practice (NSRect, NSPoint, NSRange, CGSize)
+  is inside the boundary.
 
 ## References
 
