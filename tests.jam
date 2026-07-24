@@ -267,3 +267,76 @@ tfn getPropertyHelper() {
 
     obj.msgSend0(sel("dealloc"));
 }
+
+// --- msg_send.zig: msgSendSuper ----------------------------------------------------
+
+fn subclassInit(target: u64, op: u64) u64 {
+    const obj: Object = Object.fromId(target);
+    const clsName: []u8 = "NSObject";
+    const NSObject: Class = Class { value: objc.objc_getClass(clsName.ptr) };
+    obj.msgSendSuper0(NSObject, sel("init"));
+    return target;
+}
+
+tfn subclassSuperInit() {
+    const NSObject: Class = mustClass("NSObject");
+
+    var sub: Class = Class { value: 0 };
+    match (objc.allocateClassPair(NSObject, "jam_subclass")) {
+        Option(Class).Some(cls) { sub = cls; }
+        Option(Class).None      { assert(0, 1); }
+    }
+
+    sub.replaceMethod("init", subclassInit as u64);
+    objc.registerClassPair(sub);
+
+    const obj: Object = sub.msgSendObj0(sel("alloc"));
+    const inited: u64 = obj.msgSend0(sel("init"));
+    assert((inited == obj.value) as u8, 1);
+    obj.msgSend0(sel("dealloc"));
+
+    objc.disposeClassPair(sub);
+}
+
+// --- floats over the msgSend boundary ----------------------------------------------
+
+tfn floatReturn() {
+    objc.loadFoundation();
+    const NSDate: Class = mustClass("NSDate");
+    const date: Object = NSDate.msgSendObj0(sel("date"));
+    const secs: f64 = date.msgSendF0(sel("timeIntervalSince1970"));
+    assert((secs > 1700000000.0) as u8, 1);
+}
+
+tfn floatArgRoundTrip() {
+    objc.loadFoundation();
+    const NSNumber: Class = mustClass("NSNumber");
+    const num: Object = Object.fromId(NSNumber.msgSendD1(sel("numberWithDouble:"), 3.5));
+    assert((num.msgSendF0(sel("doubleValue")) == 3.5) as u8, 1);
+}
+
+// --- object.zig: tagged pointers -----------------------------------------------------
+
+tfn taggedPointer() {
+    objc.loadFoundation();
+    const NSNumber: Class = mustClass("NSNumber");
+    // Small NSNumbers are tagged pointers — not heap objects. They must
+    // still message correctly through our u64-based Object.
+    const num: Object = NSNumber.msgSendObj1(sel("numberWithChar:"), 5);
+    assert(num.msgSend0(sel("charValue")) & 0xFF, 5);
+}
+
+// --- autorelease.zig ------------------------------------------------------------------
+
+tfn autoreleasePool() {
+    objc.loadFoundation();
+    var pool: AutoreleasePool = AutoreleasePool.init();
+    assert((pool.ptr != 0) as u8, 1);
+    // `stringWithUTF8String:` already returns an autoreleased string —
+    // it's reclaimed when the pool pops at scope exit. (Calling
+    // `autorelease` on it again would double-release once the pool's
+    // `cfn drop` actually pops, so we don't.)
+    const pooled: Object = nsString("autoreleased");
+    assert((pooled.value != 0) as u8, 1);
+    // pool's cfn drop pops here, releasing the autoreleased string.
+}
