@@ -1,0 +1,85 @@
+// jam-objc — fast-enumeration iterator.
+//
+// Port of references/zig-objc/src/iterator.zig. Iterates any object that
+// conforms to the `NSFastEnumeration` protocol (NSArray, NSDictionary,
+// NSSet, ...):
+//
+//     var it: Iterator = Iterator.init(array);
+//     loop {
+//         match (it.next()) {
+//             Option(Object).Some(elem) { ... }
+//             Option(Object).None       { break; }
+//         }
+//     }
+
+const { Option } = import("std").option;
+const { Object, Sel, sel, rawSend3, objc_enumerationMutation } = import("objc");
+
+// From <Foundation/NSEnumerator.h>: NSFastEnumerationState.
+pub const FastEnumerationState = struct {
+    state: u64,
+    itemsPtr: u64,        // id* — array the runtime points us at
+    mutationsPtr: u64,    // unsigned long*
+    extra: [5]u64,
+};
+
+pub const Iterator = struct {
+    object: u64,
+    op: u64,
+    state: FastEnumerationState,
+    // Clang compiles `for…in` loops with a size 16 buffer.
+    buffer: [16]u64,
+    initialMutations: u64,
+    started: bool,
+    index: u64,
+    count: u64,
+
+    pub fn init(object: Object) Iterator {
+        return Iterator {
+            object: object.value,
+            op: sel("countByEnumeratingWithState:objects:count:").value,
+            state: FastEnumerationState { state: 0, itemsPtr: 0, mutationsPtr: 0, extra: [0; 5] },
+            buffer: [0; 16],
+            initialMutations: 0,
+            started: false,
+            index: 0,
+            count: 0,
+        };
+    }
+
+    pub fn next(self: mut Iterator) Option(Object) {
+        if (self.index >= self.count) {
+            // Ask the collection for the next batch.
+            self.count = rawSend3(
+                self.object,
+                self.op,
+                (&self.state) as u64,
+                (&self.buffer[0]) as u64,
+                16);
+            self.index = 0;
+
+            if (self.state.mutationsPtr != 0) {
+                var mp: *const u64 = self.state.mutationsPtr as *const u64;
+                if (self.started) {
+                    // Collection mutated mid-iteration: hand off to the
+                    // runtime's mutation handler (raises by default).
+                    if (mp.* != self.initialMutations) {
+                        objc_enumerationMutation(self.object);
+                    }
+                } else {
+                    self.initialMutations = mp.*;
+                    self.started = true;
+                }
+            }
+        }
+
+        if (self.index >= self.count) {
+            return Option(Object).None();
+        }
+
+        var items: *const[] u64 = self.state.itemsPtr as *const[] u64;
+        const id: u64 = items[self.index];
+        self.index = self.index + 1;
+        return Option(Object).Some(Object { value: id });
+    }
+};

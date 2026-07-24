@@ -11,6 +11,7 @@ const { Option } = import("std").option;
 const { eq } = import("std").string;
 const objc = import("objc");
 const { Object, Class, Sel, Property, Protocol, AutoreleasePool, sel } = import("objc");
+const { Iterator } = import("iterator");
 
 // --- helpers ---------------------------------------------------------------
 
@@ -339,4 +340,30 @@ tfn autoreleasePool() {
     const pooled: Object = nsString("autoreleased");
     assert((pooled.value != 0) as u8, 1);
     // pool's cfn drop pops here, releasing the autoreleased string.
+}
+
+// --- iterator.zig ----------------------------------------------------------------------
+
+tfn iterateNSArray() {
+    objc.loadFoundation();
+    const NSMutableArray: Class = mustClass("NSMutableArray");
+    const NSNumber: Class = mustClass("NSNumber");
+
+    const array: Object = NSMutableArray.msgSendObj1(sel("arrayWithCapacity:"), 10);
+    for i in 0:10 {
+        const num: Object = NSNumber.msgSendObj1(sel("numberWithInt:"), i as u64);
+        array.msgSend1(sel("addObject:"), num.value);
+    }
+
+    var result: u64 = 0;
+    var it: Iterator = Iterator.init(array);
+    loop {
+        match (it.next()) {
+            Option(Object).Some(elem) {
+                result = result * 10 + elem.msgSend0(sel("intValue"));
+            }
+            Option(Object).None { break; }
+        }
+    }
+    assert(result, 123456789);
 }
