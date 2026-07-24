@@ -181,3 +181,89 @@ tfn classConformsToProtocol() {
     const objProto: Protocol = mustProtocol("NSObject");
     assert(NSObject.conformsToProtocol(objProto) as u8, 1);
 }
+
+// --- class.zig: allocateClassPair + replaceMethod ------------------------------
+
+fn hash69(target: u64, op: u64) u64 {
+    return 69;
+}
+
+tfn allocateClassPairAndReplaceMethod() {
+    const NSObject: Class = mustClass("NSObject");
+
+    var myClass: Class = Class { value: 0 };
+    match (objc.allocateClassPair(NSObject, "jam_object")) {
+        Option(Class).Some(cls) { myClass = cls; }
+        Option(Class).None      { assert(0, 1); }
+    }
+
+    myClass.replaceMethod("hash", hash69 as u64);
+    objc.registerClassPair(myClass);
+
+    const obj: Object = myClass.msgSendObj0(sel("alloc"));
+    assert(obj.msgSend0(sel("hash")), 69);
+    obj.msgSend0(sel("dealloc"));
+
+    objc.disposeClassPair(myClass);
+}
+
+// --- class.zig: addMethod -------------------------------------------------------
+
+fn myAddition(target: u64, op: u64, a: i32, b: i32) i32 {
+    return a + b;
+}
+
+tfn addMethod() {
+    const NSObject: Class = mustClass("NSObject");
+
+    var myClass: Class = Class { value: 0 };
+    match (objc.allocateClassPair(NSObject, "jam_class")) {
+        Option(Class).Some(cls) { myClass = cls; }
+        Option(Class).None      { assert(0, 1); }
+    }
+
+    assert(myClass.addMethod("my_addition", myAddition as u64, "i@:ii") as u8, 1);
+    objc.registerClassPair(myClass);
+
+    const obj: Object = myClass.msgSendObj0(sel("alloc")).msgSendObj0(sel("init"));
+    assert(obj.msgSend2(sel("my_addition"), 2, 3), 5);
+    obj.msgSend0(sel("dealloc"));
+}
+
+// --- class.zig: ivars ------------------------------------------------------------
+
+tfn ivars() {
+    objc.loadFoundation();
+    const NSObject: Class = mustClass("NSObject");
+
+    var myClass: Class = Class { value: 0 };
+    match (objc.allocateClassPair(NSObject, "jam_ivar_object")) {
+        Option(Class).Some(cls) { myClass = cls; }
+        Option(Class).None      { assert(0, 1); }
+    }
+
+    assert(myClass.addIvar("my_ivar") as u8, 1);
+    objc.registerClassPair(myClass);
+
+    const obj: Object = myClass.msgSendObj0(sel("alloc"));
+    const ivarVal: Object = nsString("69---nice");
+    obj.setInstanceVariable("my_ivar", ivarVal);
+    const back: Object = obj.getInstanceVariable("my_ivar");
+    assert(eq(utf8(back), "69---nice") as u8, 1);
+
+    obj.msgSend0(sel("dealloc"));
+}
+
+// --- object.zig: property helpers -------------------------------------------------
+
+tfn getPropertyHelper() {
+    objc.loadFoundation();
+    const NSObject: Class = mustClass("NSObject");
+    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
+    obj.msgSend0(sel("init"));
+
+    const name: Object = obj.getPropertyObj("className");
+    assert(eq(utf8(name), "NSObject") as u8, 1);
+
+    obj.msgSend0(sel("dealloc"));
+}
