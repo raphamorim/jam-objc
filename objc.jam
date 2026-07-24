@@ -446,3 +446,54 @@ pub const Class = struct {
         return fromBool(class_addIvar(self.value, name.ptr, 8, 3, idEncoding.ptr));
     }
 };
+
+// Result of Class.copyPropertyList — a malloc'd array of objc_property_t.
+pub const PropertyList = struct {
+    items: *const[] u64,
+    len: u32,
+
+    pub fn at(self: PropertyList, i: u32) Property {
+        return Property { value: self.items[i] };
+    }
+
+    // `cfn drop` (not `fn drop`) is what registers with MVS auto-drop —
+    // a plain `fn drop` is just a method and never fires at scope exit.
+    cfn drop(self: mut PropertyList) {
+        if ((self.items as u64) != 0) {
+            free(self.items as *mut[] u8);
+        }
+    }
+};
+
+pub fn getClass(name: []u8) Option(Class) {
+    const cls: u64 = objc_getClass(name.ptr);
+    if (cls == 0) {
+        return Option(Class).None();
+    }
+    return Option(Class).Some(Class { value: cls });
+}
+
+pub fn getMetaClass(name: []u8) Option(Class) {
+    const cls: u64 = objc_getMetaClass(name.ptr);
+    if (cls == 0) {
+        return Option(Class).None();
+    }
+    return Option(Class).Some(Class { value: cls });
+}
+
+// Begin by calling this, then registerClassPair on the result when done.
+pub fn allocateClassPair(superclass: Class, name: []u8) Option(Class) {
+    const cls: u64 = objc_allocateClassPair(superclass.value, name.ptr, 0);
+    if (cls == 0) {
+        return Option(Class).None();
+    }
+    return Option(Class).Some(Class { value: cls });
+}
+
+pub fn registerClassPair(cls: Class) {
+    objc_registerClassPair(cls.value);
+}
+
+pub fn disposeClassPair(cls: Class) {
+    objc_disposeClassPair(cls.value);
+}
