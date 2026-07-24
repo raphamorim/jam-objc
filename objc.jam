@@ -344,6 +344,12 @@ pub const Class = struct {
     // -- message sending (class methods). Returns are raw u64; use
     //    msgSendObjN when the method returns an object.
 
+    // One generic send over @callC — the suffixed wrappers below are
+    // now just shorthand for it.
+    pub cfn msgSend(self: Class, R: type, op: Sel, args: ...) R {
+        return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
+    }
+
     pub fn msgSend0(self: Class, op: Sel) u64 {
         return rawSend0(self.value, op.value);
     }
@@ -516,6 +522,15 @@ pub const Object = struct {
     }
 
     // -- message sending (instance methods)
+
+    pub cfn msgSend(self: Object, R: type, op: Sel, args: ...) R {
+        return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
+    }
+
+    pub cfn msgSendSuper(self: Object, R: type, superclass: Class, op: Sel, args: ...) R {
+        var sup: ObjcSuper = ObjcSuper { receiver: self.value, superClass: superclass.value };
+        return @callC(R, objc_msgSendSuper as u64, (&sup) as u64, op.value, args...);
+    }
 
     pub fn msgSend0(self: Object, op: Sel) u64 {
         return rawSend0(self.value, op.value);
