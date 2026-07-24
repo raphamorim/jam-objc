@@ -13,7 +13,7 @@
 //     }
 
 const { Option } = import("std").option;
-const { Object, Sel, sel, rawSend3, objc_enumerationMutation } = import("objc");
+const { Object, Sel, sel, msgSendAddr, objc_enumerationMutation } = import("objc");
 
 // From <Foundation/NSEnumerator.h>: NSFastEnumerationState.
 pub const FastEnumerationState = struct {
@@ -50,12 +50,12 @@ pub const Iterator = struct {
     pub fn next(self: mut Iterator) Option(Object) {
         if (self.index >= self.count) {
             // Ask the collection for the next batch.
-            self.count = rawSend3(
+            self.count = @callC(u64, msgSendAddr(),
                 self.object,
                 self.op,
                 (&self.state) as u64,
                 (&self.buffer[0]) as u64,
-                16);
+                16 as u64);
             self.index = 0;
 
             if (self.state.mutationsPtr != 0) {
