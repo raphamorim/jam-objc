@@ -497,3 +497,200 @@ pub fn registerClassPair(cls: Class) {
 pub fn disposeClassPair(cls: Class) {
     objc_disposeClassPair(cls.value);
 }
+
+// ---------------------------------------------------------------------------
+// Object
+
+pub const Object = struct {
+    value: u64,
+
+    // Convert a raw `id` into an Object. Tagged pointers (NSNumber,
+    // short NSStrings, ...) are plain u64s here, so unaligned tagged
+    // pointer values are handled for free.
+    pub fn fromId(id: u64) Object {
+        return Object { value: id };
+    }
+
+    pub fn isNil(self: Object) bool {
+        return self.value == 0;
+    }
+
+    // -- message sending (instance methods)
+
+    pub fn msgSend0(self: Object, op: Sel) u64 {
+        return rawSend0(self.value, op.value);
+    }
+
+    pub fn msgSend1(self: Object, op: Sel, a: u64) u64 {
+        return rawSend1(self.value, op.value, a);
+    }
+
+    pub fn msgSend2(self: Object, op: Sel, a: u64, b: u64) u64 {
+        return rawSend2(self.value, op.value, a, b);
+    }
+
+    pub fn msgSend3(self: Object, op: Sel, a: u64, b: u64, c3: u64) u64 {
+        return rawSend3(self.value, op.value, a, b, c3);
+    }
+
+    pub fn msgSend4(self: Object, op: Sel, a: u64, b: u64, c4: u64, d: u64) u64 {
+        return rawSend4(self.value, op.value, a, b, c4, d);
+    }
+
+    pub fn msgSendObj0(self: Object, op: Sel) Object {
+        return Object { value: rawSend0(self.value, op.value) };
+    }
+
+    pub fn msgSendObj1(self: Object, op: Sel, a: u64) Object {
+        return Object { value: rawSend1(self.value, op.value, a) };
+    }
+
+    pub fn msgSendObj2(self: Object, op: Sel, a: u64, b: u64) Object {
+        return Object { value: rawSend2(self.value, op.value, a, b) };
+    }
+
+    // f64 (CGFloat / NSTimeInterval / double) returns.
+    pub fn msgSendF0(self: Object, op: Sel) f64 {
+        return rawSendF0(self.value, op.value);
+    }
+
+    pub fn msgSendF1(self: Object, op: Sel, a: u64) f64 {
+        return rawSendF1(self.value, op.value, a);
+    }
+
+    // f64 arguments.
+    pub fn msgSendD1(self: Object, op: Sel, a: f64) u64 {
+        return rawSendD1(self.value, op.value, a);
+    }
+
+    pub fn msgSendD2(self: Object, op: Sel, a: f64, b: f64) u64 {
+        return rawSendD2(self.value, op.value, a, b);
+    }
+
+    // Invoke a selector on the superclass (objc_msgSendSuper).
+    pub fn msgSendSuper0(self: Object, superclass: Class, op: Sel) u64 {
+        return rawSendSuper0(self.value, superclass.value, op.value);
+    }
+
+    pub fn msgSendSuper1(self: Object, superclass: Class, op: Sel, a: u64) u64 {
+        return rawSendSuper1(self.value, superclass.value, op.value, a);
+    }
+
+    pub fn msgSendSuper2(self: Object, superclass: Class, op: Sel, a: u64, b: u64) u64 {
+        return rawSendSuper2(self.value, superclass.value, op.value, a, b);
+    }
+
+    // -- runtime queries
+
+    pub fn getClass(self: Object) Option(Class) {
+        const cls: u64 = object_getClass(self.value);
+        if (cls == 0) {
+            return Option(Class).None();
+        }
+        return Option(Class).Some(Class { value: cls });
+    }
+
+    pub fn getClassName(self: Object) []u8 {
+        return cstr(object_getClassName(self.value));
+    }
+
+    pub fn copy(self: Object, size: u64) Object {
+        return Object { value: object_copy(self.value, size) };
+    }
+
+    pub fn dispose(self: Object) {
+        object_dispose(self.value);
+    }
+
+    pub fn isClass(self: Object) bool {
+        return fromBool(object_isClass(self.value));
+    }
+
+    pub fn getInstanceVariable(self: Object, name: []u8) Object {
+        const ivar: u64 = object_getInstanceVariable(self.value, name.ptr, 0);
+        return Object { value: object_getIvar(self.value, ivar) };
+    }
+
+    pub fn setInstanceVariable(self: Object, name: []u8, val: Object) {
+        const ivar: u64 = object_getInstanceVariable(self.value, name.ptr, 0);
+        object_setIvar(self.value, ivar, val.value);
+    }
+
+    // -- reference counting
+
+    pub fn retain(self: Object) Object {
+        return Object { value: objc_retain(self.value) };
+    }
+
+    pub fn release(self: Object) {
+        objc_release(self.value);
+    }
+
+    // -- property helpers (ports of zig-objc Object.getProperty /
+    //    setProperty; strictly less performant than a direct msgSend).
+
+    // Read a property by name. Uses the declared getter when the class
+    // metadata names one ("G" attribute), the property name otherwise.
+    pub fn getProperty(self: Object, name: []u8) u64 {
+        var getter: u64 = propertyAccessorSel(self.value, name, "G");
+        if (getter == 0) {
+            getter = sel_registerName(name.ptr);
+        }
+        return rawSend0(self.value, getter);
+    }
+
+    pub fn getPropertyObj(self: Object, name: []u8) Object {
+        return Object { value: self.getProperty(name) };
+    }
+
+    // Write a property by name. Uses the declared setter ("S" attribute)
+    // when present, `setName:` otherwise. Property names longer than 250
+    // bytes are ignored.
+    pub fn setProperty(self: Object, name: []u8, v: u64) {
+        var setter: u64 = propertyAccessorSel(self.value, name, "S");
+        if (setter == 0) {
+            if ((name.len == 0) || (name.len > 250)) {
+                return;
+            }
+            // "set" + Name + ":" + NUL
+            var buf: [256]u8 = [0; 256];
+            buf[0] = 115;          // 's'
+            buf[1] = 101;          // 'e'
+            buf[2] = 116;          // 't'
+            var first: u8 = name.ptr[0];
+            if ((first >= 97) && (first <= 122)) {
+                first = first - 32;   // toUpper
+            }
+            buf[3] = first;
+            var i: u64 = 1;
+            while (i < name.len) {
+                buf[3 + i] = name.ptr[i];
+                i = i + 1;
+            }
+            buf[3 + name.len] = 58;   // ':'
+            setter = sel_registerName(buf.asPtr());
+        }
+        rawSend1(self.value, setter, v);
+    }
+};
+
+// Look up the explicit getter/setter selector recorded in the property
+// metadata (attribute "G" or "S"). 0 when absent.
+fn propertyAccessorSel(obj: u64, name: []u8, attr: []u8) u64 {
+    const cls: u64 = object_getClass(obj);
+    if (cls == 0) {
+        return 0;
+    }
+    const prop: u64 = class_getProperty(cls, name.ptr);
+    if (prop == 0) {
+        return 0;
+    }
+    const val: u64 = property_copyAttributeValue(prop, attr.ptr);
+    if (val == 0) {
+        return 0;
+    }
+    const p: *const[] u8 = val as *const[] u8;
+    const result: u64 = sel_registerName(p);
+    free(val as *mut[] u8);
+    return result;
+}
