@@ -228,3 +228,30 @@ pub fn rawSendD2(target: u64, op: u64, a: f64, b: f64) u64 {
     var send: fn(u64, u64, f64, f64) u64 = caster.f;
     return send(target, op, a, b);
 }
+
+// struct objc_super { id receiver; Class super_class; }
+pub const ObjcSuper = struct {
+    receiver: u64,
+    superClass: u64,
+};
+
+pub fn rawSendSuper0(receiver: u64, superclass: u64, op: u64) u64 {
+    var sup: ObjcSuper = ObjcSuper { receiver: receiver, superClass: superclass };
+    var caster: Sig0 = Sig0 { addr: objc_msgSendSuper as u64 };
+    var send: fn(u64, u64) u64 = caster.f;
+    return send((&sup) as u64, op);
+}
+
+pub fn rawSendSuper1(receiver: u64, superclass: u64, op: u64, a: u64) u64 {
+    var sup: ObjcSuper = ObjcSuper { receiver: receiver, superClass: superclass };
+    var caster: Sig1 = Sig1 { addr: objc_msgSendSuper as u64 };
+    var send: fn(u64, u64, u64) u64 = caster.f;
+    return send((&sup) as u64, op, a);
+}
+
+pub fn rawSendSuper2(receiver: u64, superclass: u64, op: u64, a: u64, b: u64) u64 {
+    var sup: ObjcSuper = ObjcSuper { receiver: receiver, superClass: superclass };
+    var caster: Sig2 = Sig2 { addr: objc_msgSendSuper as u64 };
+    var send: fn(u64, u64, u64, u64) u64 = caster.f;
+    return send((&sup) as u64, op, a, b);
+}
