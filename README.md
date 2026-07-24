@@ -15,8 +15,8 @@ fn main() {
     match (objc.getClass("NSString")) {
         Option(Class).Some(NSString) {
             const msg: []u8 = "hello from jam";
-            const s: Object = NSString.msgSendObj1(sel("stringWithUTF8String:"), msg.ptr as u64);
-            const len: u64 = s.msgSend0(sel("length"));
+            const s: Object = NSString.msgSend(Object, sel("stringWithUTF8String:"), msg.ptr as u64);
+            const len: u64 = s.msgSend(u64, sel("length"));
             // ...
         }
         Option(Class).None { }
@@ -39,36 +39,36 @@ straight through the runtime (`NSApplication` + `NSWindow`):
 cd examples && jam run -lobjc window.jam   # close the window / Cmd-Q to quit
 ```
 
-It also demonstrates the "roll your own signature" escape hatch: a window
-needs `-initWithContentRect:styleMask:backing:defer:`, whose first
-argument is an `NSRect` (four `f64`s) passed **by value**. The shipped
-`msgSend` variants are all `u64`/`f64`-shaped, so the example puns
-`objc.msgSendAddr()` with its own union for that one call — jam lowers
-the homogeneous-float aggregate through the arm64 C ABI correctly.
+It also exercises the hardest send shape: a window needs
+`-initWithContentRect:styleMask:backing:defer:`, whose first argument is
+an `NSRect` (four `f64`s) passed **by value**. The same `msgSend` call
+handles it — the argument's type shapes the synthesized C signature, and
+jam lowers the homogeneous-float aggregate through the arm64 C ABI
+(`v0–v3`) correctly.
 
 ## How it works
 
 zig-objc's core trick is casting `objc_msgSend` to a function pointer
 with the *target method's* signature, so arguments and returns travel
-in the registers the C ABI expects. Jam has no `@ptrCast`, but it can
-type-pun through an untagged union:
+in the registers the C ABI expects. Jam's `@callC` intrinsic does that
+cast: it synthesizes the exact function type from the call's argument
+types and the explicit return type. The whole library boils down to one
+variadic `cfn` forwarding into it:
 
 ```jam
 pub extern fn objc_msgSend();             // declared only for its address
 
-const Sig1 = union { addr: u64, f: fn(u64, u64, u64) u64 };
-
-pub fn rawSend1(target: u64, op: u64, a: u64) u64 {
-    var caster: Sig1 = Sig1 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, u64) u64 = caster.f;
-    return send(target, op, a);
+pub cfn msgSend(self: Object, R: type, op: Sel, args: ...) R {
+    return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
 }
 ```
 
-Jam has no comptime metaprogramming, so where zig-objc takes a tuple
-and synthesizes the call at compile time, jam-objc ships arity/shape
-suffixed variants. `id`, `Class`, `SEL`, and object pointers all travel
-as `u64` (which also makes tagged pointers a non-issue).
+Each call site instantiates a clone specialized to its argument shape,
+so every arity and every mix of ints/floats/by-value structs gets the
+correct signature — the moral equivalent of zig-objc's comptime tuple
+reflection (see `MSGSEND.md` for the design history). `id`, `Class`,
+`SEL`, and object pointers all travel as `u64` (which also makes tagged
+pointers a non-issue).
 
 ## API map (zig-objc → jam-objc)
 
@@ -77,11 +77,11 @@ as `u64` (which also makes tagged pointers a non-issue).
 | `objc.getClass(name) ?Class`          | `objc.getClass(name) Option(Class)`             |
 | `objc.getMetaClass`, `getProtocol`    | same names, `Option(...)` returns               |
 | `objc.sel(name)` / `Sel.registerName` | same                                            |
-| `obj.msgSend(u64, "hash", .{})`       | `obj.msgSend0(sel("hash"))`                     |
-| `obj.msgSend(Object, "init", .{})`    | `obj.msgSendObj0(sel("init"))`                  |
-| `obj.msgSend(f64, sel, .{})`          | `obj.msgSendF0(sel)` (`F1` with one u64 arg)    |
-| `obj.msgSend(u64, sel, .{3.5})`       | `obj.msgSendD1(sel, 3.5)` (`D2` for two f64s)   |
-| `obj.msgSendSuper(Super, R, sel, a)`  | `obj.msgSendSuper0/1/2(superclass, sel, ...)`   |
+| `obj.msgSend(u64, "hash", .{})`       | `obj.msgSend(u64, sel("hash"))`                 |
+| `obj.msgSend(Object, "init", .{})`    | `obj.msgSend(Object, sel("init"))`              |
+| `obj.msgSend(f64, sel, .{})`          | `obj.msgSend(f64, sel)`                         |
+| `obj.msgSend(u64, sel, .{3.5})`       | `obj.msgSend(u64, sel, 3.5)`                    |
+| `obj.msgSendSuper(Super, R, sel, a)`  | `obj.msgSendSuper(R, superclass, sel, a)`       |
 | `Object.fromId(id)`                   | `Object.fromId(id)` (id is `u64`)               |
 | `obj.getClass/getClassName/copy/...`  | same names                                      |
 | `obj.retain/release`                  | same                                            |
@@ -100,12 +100,11 @@ as `u64` (which also makes tagged pointers a non-issue).
 | `objc.boolResult/boolParam`           | `objc.fromBool/toBool`                          |
 | `objc.free`                           | `objc.freeCopied`                               |
 
-Custom signatures (mixed int/float args, more arity) are easy to add in
-*your* module — pun `objc.msgSendAddr()` with your own union:
-
-```jam
-const MySig = union { addr: u64, f: fn(u64, u64, f64, u64) u64 };
-```
+There are no per-signature wrappers to add: any argument mix works
+directly (`obj.msgSend(u64, sel, 3.5, flags)`); argument types are taken
+as-is, so spell scalars explicitly (`x.value`, `p as u64`, `0 as i64`).
+For anything the wrappers can't express, drive `@callC` yourself with
+`objc.msgSendAddr()` / `objc.msgSendSuperAddr()`.
 
 ## Frameworks
 
