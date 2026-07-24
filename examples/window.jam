@@ -1,0 +1,175 @@
+// jam-objc example: open a native macOS window.
+//
+// Builds the Cocoa app the long way — straight through the Objective-C
+// runtime — to show jam-objc driving real AppKit objects: an
+// NSApplication with a working menu (Cmd-Q quits), a custom app
+// delegate (closing the window quits), and an NSWindow holding a label.
+//
+// Build & run (from this folder):
+//     jam run -lobjc window.jam
+//
+// AppKit isn't linked (jam has no -framework flag), so we load it at
+// runtime with objc.loadAppKit(). Only -lobjc is needed at link time.
+
+const objc = import("../objc");
+const { Object, Class, Sel, sel, getClass } = import("../objc");
+const { Option } = import("std").option;
+const { print } = import("std/fmt");
+
+// AppKit / Foundation constants.
+const NSWindowStyleMaskTitled: u64 = 1;
+const NSWindowStyleMaskClosable: u64 = 2;
+const NSWindowStyleMaskMiniaturizable: u64 = 4;
+const NSWindowStyleMaskResizable: u64 = 8;
+const NSBackingStoreBuffered: u64 = 2;
+const NSApplicationActivationPolicyRegular: u64 = 0;
+
+// CoreGraphics rect: {origin{x,y}, size{w,h}} — four f64s, passed to
+// -initWithContentRect: / -initWithFrame: by value. jam lowers this
+// homogeneous-float aggregate through the arm64 C ABI (v0–v3)
+// correctly, so the custom msgSend signatures below receive it as a
+// struct argument.
+const NSRect = struct { x: f64, y: f64, w: f64, h: f64 };
+
+// objc_msgSend punned to shapes the library doesn't ship — the
+// documented "roll your own signature" escape hatch (see README).
+//   SigInitRect : (id, SEL, NSRect, NSUInteger, NSUInteger, BOOL) -> id
+//   SigRect1    : (id, SEL, NSRect) -> id
+const SigInitRect = union {
+    addr: u64,
+    f: fn(u64, u64, NSRect, u64, u64, i64) u64,
+};
+const SigRect1 = union { addr: u64, f: fn(u64, u64, NSRect) u64 };
+
+fn mustClass(name: []u8) Class {
+    match (getClass(name)) {
+        Some(c) { return c; }
+        None    { return Class { value: 0 }; }
+    }
+    return Class { value: 0 };
+}
+
+// [[Class alloc] init] — a fresh, initialized instance.
+fn allocInit(name: []u8) Object {
+    const c: Class = mustClass(name);
+    const obj: Object = c.msgSendObj0(sel("alloc"));
+    return Object.fromId(obj.msgSend0(sel("init")));
+}
+
+// [NSString stringWithUTF8String: s] — an autoreleased NSString.
+fn nsString(s: []u8) Object {
+    const nsstr: Class = mustClass("NSString");
+    return nsstr.msgSendObj1(sel("stringWithUTF8String:"), s.ptr as u64);
+}
+
+// [[NSWindow alloc] initWithContentRect:r styleMask:m backing:b defer:NO]
+fn makeWindow(r: NSRect, styleMask: u64) Object {
+    const winCls: Class = mustClass("NSWindow");
+    const alloc: u64 = winCls.msgSend0(sel("alloc"));
+    var caster: SigInitRect = SigInitRect { addr: objc.msgSendAddr() };
+    var initFn: fn(u64, u64, NSRect, u64, u64, i64) u64 = caster.f;
+    const win: u64 = initFn(
+        alloc,
+        sel("initWithContentRect:styleMask:backing:defer:").value,
+        r, styleMask, NSBackingStoreBuffered, 0);
+    return Object.fromId(win);
+}
+
+// A non-editable, transparent NSTextField acting as a plain label.
+fn makeLabel(text: []u8, r: NSRect) Object {
+    const cls: Class = mustClass("NSTextField");
+    const alloc: u64 = cls.msgSend0(sel("alloc"));
+    var caster: SigRect1 = SigRect1 { addr: objc.msgSendAddr() };
+    var initFn: fn(u64, u64, NSRect) u64 = caster.f;
+    const label: Object =
+        Object.fromId(initFn(alloc, sel("initWithFrame:").value, r));
+    label.msgSend1(sel("setStringValue:"), nsString(text).value);
+    label.msgSend1(sel("setEditable:"), 0);
+    label.msgSend1(sel("setSelectable:"), 0);
+    label.msgSend1(sel("setBezeled:"), 0);
+    label.msgSend1(sel("setDrawsBackground:"), 0);
+    return label;
+}
+
+// Build the menu bar with a single application menu holding "Quit"
+// (Cmd-Q → -terminate:). Without this, Cmd-Q is unbound and does
+// nothing — there is no menu to route the key equivalent through.
+fn installMenu(app: Object) {
+    const menubar: Object = allocInit("NSMenu");
+    const appItem: Object = allocInit("NSMenuItem");
+    menubar.msgSend1(sel("addItem:"), appItem.value);
+    app.msgSend1(sel("setMainMenu:"), menubar.value);
+
+    const appMenu: Object = allocInit("NSMenu");
+    const itemCls: Class = mustClass("NSMenuItem");
+    const quitAlloc: u64 = itemCls.msgSend0(sel("alloc"));
+    const quitItem: Object = Object.fromId(quitAlloc);
+    // -initWithTitle:action:keyEquivalent: — all three args pointer-
+    // sized (id, SEL, id), so the library's msgSend3 handles it.
+    quitItem.msgSend3(
+        sel("initWithTitle:action:keyEquivalent:"),
+        nsString("Quit").value, sel("terminate:").value,
+        nsString("q").value);
+    appMenu.msgSend1(sel("addItem:"), quitItem.value);
+    appItem.msgSend1(sel("setSubmenu:"), appMenu.value);
+}
+
+// App-delegate method: quit once the last window closes. Installed via
+// a runtime-built class (allocateClassPair + addMethod) — the same
+// path zig-objc's class tests exercise. Signature, in ObjC encoding:
+//   B@:@  →  BOOL (id self, SEL _cmd, id sender)
+fn appShouldTerminate(selfId: u64, op: u64, sender: u64) u8 {
+    return 1;  // YES
+}
+
+fn installDelegate(app: Object) {
+    const nsobject: Class = mustClass("NSObject");
+    var delCls: Class = Class { value: 0 };
+    match (objc.allocateClassPair(nsobject, "JamWindowDelegate")) {
+        Option(Class).Some(c) { delCls = c; }
+        Option(Class).None    { return; }
+    }
+    delCls.addMethod("applicationShouldTerminateAfterLastWindowClosed:",
+                     appShouldTerminate as u64, "B@:@");
+    objc.registerClassPair(delCls);
+    const delegate: Object = delCls.msgSendObj0(sel("alloc"));
+    delegate.msgSend0(sel("init"));
+    app.msgSend1(sel("setDelegate:"), delegate.value);
+}
+
+fn main() {
+    if (!objc.loadAppKit()) {
+        print("failed to load AppKit\n");
+        return;
+    }
+
+    // Shared application, set to a regular (Dock-visible) app so the
+    // window can become key and show on screen.
+    const appCls: Class = mustClass("NSApplication");
+    const app: Object = appCls.msgSendObj0(sel("sharedApplication"));
+    app.msgSend1(sel("setActivationPolicy:"),
+                 NSApplicationActivationPolicyRegular);
+
+    installMenu(app);
+    installDelegate(app);
+
+    const style: u64 = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskMiniaturizable |
+                       NSWindowStyleMaskResizable;
+    var frame: NSRect = NSRect { x: 0.0, y: 0.0, w: 480.0, h: 320.0 };
+    const win: Object = makeWindow(frame, style);
+    win.msgSend1(sel("setTitle:"), nsString("jam-objc").value);
+
+    // Add a centered label so the window isn't blank.
+    var labelRect: NSRect = NSRect { x: 40.0, y: 150.0, w: 400.0, h: 40.0 };
+    const label: Object = makeLabel("Hello from jam-objc", labelRect);
+    const contentView: Object = win.msgSendObj0(sel("contentView"));
+    contentView.msgSend1(sel("addSubview:"), label.value);
+
+    win.msgSend0(sel("center"));
+    win.msgSend1(sel("makeKeyAndOrderFront:"), 0);
+    app.msgSend1(sel("activateIgnoringOtherApps:"), 1);
+
+    print("window open — close it or press Cmd-Q to quit\n");
+    app.msgSend0(sel("run"));
+}
