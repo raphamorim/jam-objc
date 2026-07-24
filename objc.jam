@@ -2,22 +2,24 @@
 //
 // A port of mitchellh/zig-objc (vendored in references/zig-objc) to the
 // Jam language. The core trick is the same as the Zig original: the
-// address of `objc_msgSend` is cast to a function pointer matching the
-// *target method's* signature and called through that, so arguments and
-// returns travel in the registers the C ABI expects. Jam has no
-// `@ptrCast`, so the cast goes through an untagged union instead
-// (see the `Sig*` unions below).
+// address of `objc_msgSend` is called through a function type matching
+// the *target method's* signature, so arguments and returns travel in
+// the registers the C ABI expects. Jam's `@callC` intrinsic synthesizes
+// that signature from the call site's argument types, and the variadic
+// `cfn msgSend` below forwards any argument list into it — one generic
+// send, like zig-objc's `msgSend(ReturnType, sel, .{args})`:
 //
-// Differences from zig-objc, forced by Jam (no comptime reflection):
-//   * msgSend is arity/shape-suffixed (`msgSend0..4`, `msgSendF*`,
-//     `msgSendD*`) instead of generic over a tuple. Receivers, objects,
-//     selectors, and pointers all travel as `u64`.
-//   * Methods that return (or take) structs by value — NSRange, NSRect,
-//     CGRect, ... — work via a custom `Sig*` union whose `f` field has
-//     the struct in the signature (e.g. `fn(u64, u64) NSRect`). The
-//     library doesn't ship those shapes; declare your own per method.
-//     Requires a jam built at/after the C-ABI aggregate fix (older
-//     jams miscompiled struct args/returns through fn-pointer calls).
+//     const d: f64 = obj.msgSend(f64, sel("doubleValue"));
+//     win.msgSend(void, sel("setTitle:"), title.value);
+//     const r: NSRect = win.msgSend(NSRect, sel("frame"));
+//
+// Argument types are taken as-is (no coercion): pass pointer-sized
+// scalars as u64 (`x.value`, `p as u64`, `1 as u64`), floats as f64,
+// and by-value structs (NSRect, NSRange, ...) as themselves.
+//
+// Differences from zig-objc:
+//   * The return type is passed explicitly as the first argument —
+//     there is no comptime inference.
 //   * `addMethod` takes an explicit ObjC type-encoding string ("v@:",
 //     "i@:ii", ...) — there is no comptime encoder.
 //
@@ -140,32 +142,16 @@ pub fn loadAppKit() bool {
 // msgSend
 //
 // objc_msgSend must be called as if it were the target method (see the
-// long comment in references/zig-objc/src/msg_send.zig). Each `Sig*`
-// union puns the function's address into one concrete shape:
+// long comment in references/zig-objc/src/msg_send.zig). `@callC`
+// synthesizes that exact signature from the call site's argument types
+// and the explicit return type, so `Class.msgSend` / `Object.msgSend`
+// below cover every arity and shape — including by-value structs
+// (NSRect, NSRange, ...) and f64 arguments/returns.
 //
-//   sigN   : N u64 args -> u64    (ids, pointers, integers, bools, void)
-//   sigFN  : N u64 args -> f64    (CGFloat / NSTimeInterval returns)
-//   sigDN  : N f64 args -> u64    (CGFloat arguments)
+// `msgSendAddr`/`msgSendSuperAddr` stay public so user code can drive
+// `@callC` directly for anything the wrappers don't express:
 //
-// u64 covers every pointer-sized scalar; narrower C integer arguments
-// (int, BOOL, ...) are widened into the same registers, which the
-// arm64 and x86_64 C ABIs both permit for callee-narrowed parameters.
-//
-// `msgSendAddr`/`msgSendSuperAddr` are public so user code can pun
-// signatures this module doesn't ship (e.g. mixed int/float argument
-// lists) — define your own union in your module:
-//
-//     const MySig = union { addr: u64, f: fn(u64, u64, f64, u64) u64 };
-
-pub const Sig0 = union { addr: u64, f: fn(u64, u64) u64 };
-pub const Sig1 = union { addr: u64, f: fn(u64, u64, u64) u64 };
-pub const Sig2 = union { addr: u64, f: fn(u64, u64, u64, u64) u64 };
-pub const Sig3 = union { addr: u64, f: fn(u64, u64, u64, u64, u64) u64 };
-pub const Sig4 = union { addr: u64, f: fn(u64, u64, u64, u64, u64, u64) u64 };
-pub const SigF0 = union { addr: u64, f: fn(u64, u64) f64 };
-pub const SigF1 = union { addr: u64, f: fn(u64, u64, u64) f64 };
-pub const SigD1 = union { addr: u64, f: fn(u64, u64, f64) u64 };
-pub const SigD2 = union { addr: u64, f: fn(u64, u64, f64, f64) u64 };
+//     var d: f64 = @callC(f64, objc.msgSendAddr(), obj.value, op.value);
 
 pub fn msgSendAddr() u64 {
     return objc_msgSend as u64;
@@ -175,86 +161,11 @@ pub fn msgSendSuperAddr() u64 {
     return objc_msgSendSuper as u64;
 }
 
-pub fn rawSend0(target: u64, op: u64) u64 {
-    var caster: Sig0 = Sig0 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64) u64 = caster.f;
-    return send(target, op);
-}
-
-pub fn rawSend1(target: u64, op: u64, a: u64) u64 {
-    var caster: Sig1 = Sig1 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, u64) u64 = caster.f;
-    return send(target, op, a);
-}
-
-pub fn rawSend2(target: u64, op: u64, a: u64, b: u64) u64 {
-    var caster: Sig2 = Sig2 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, u64, u64) u64 = caster.f;
-    return send(target, op, a, b);
-}
-
-pub fn rawSend3(target: u64, op: u64, a: u64, b: u64, c3: u64) u64 {
-    var caster: Sig3 = Sig3 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, u64, u64, u64) u64 = caster.f;
-    return send(target, op, a, b, c3);
-}
-
-pub fn rawSend4(target: u64, op: u64, a: u64, b: u64, c4: u64, d: u64) u64 {
-    var caster: Sig4 = Sig4 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, u64, u64, u64, u64) u64 = caster.f;
-    return send(target, op, a, b, c4, d);
-}
-
-pub fn rawSendF0(target: u64, op: u64) f64 {
-    var caster: SigF0 = SigF0 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64) f64 = caster.f;
-    return send(target, op);
-}
-
-pub fn rawSendF1(target: u64, op: u64, a: u64) f64 {
-    var caster: SigF1 = SigF1 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, u64) f64 = caster.f;
-    return send(target, op, a);
-}
-
-pub fn rawSendD1(target: u64, op: u64, a: f64) u64 {
-    var caster: SigD1 = SigD1 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, f64) u64 = caster.f;
-    return send(target, op, a);
-}
-
-pub fn rawSendD2(target: u64, op: u64, a: f64, b: f64) u64 {
-    var caster: SigD2 = SigD2 { addr: objc_msgSend as u64 };
-    var send: fn(u64, u64, f64, f64) u64 = caster.f;
-    return send(target, op, a, b);
-}
-
 // struct objc_super { id receiver; Class super_class; }
 pub const ObjcSuper = struct {
     receiver: u64,
     superClass: u64,
 };
-
-pub fn rawSendSuper0(receiver: u64, superclass: u64, op: u64) u64 {
-    var sup: ObjcSuper = ObjcSuper { receiver: receiver, superClass: superclass };
-    var caster: Sig0 = Sig0 { addr: objc_msgSendSuper as u64 };
-    var send: fn(u64, u64) u64 = caster.f;
-    return send((&sup) as u64, op);
-}
-
-pub fn rawSendSuper1(receiver: u64, superclass: u64, op: u64, a: u64) u64 {
-    var sup: ObjcSuper = ObjcSuper { receiver: receiver, superClass: superclass };
-    var caster: Sig1 = Sig1 { addr: objc_msgSendSuper as u64 };
-    var send: fn(u64, u64, u64) u64 = caster.f;
-    return send((&sup) as u64, op, a);
-}
-
-pub fn rawSendSuper2(receiver: u64, superclass: u64, op: u64, a: u64, b: u64) u64 {
-    var sup: ObjcSuper = ObjcSuper { receiver: receiver, superClass: superclass };
-    var caster: Sig2 = Sig2 { addr: objc_msgSendSuper as u64 };
-    var send: fn(u64, u64, u64, u64) u64 = caster.f;
-    return send((&sup) as u64, op, a, b);
-}
 
 // ---------------------------------------------------------------------------
 // Sel
@@ -341,53 +252,15 @@ pub fn getProtocol(name: []u8) Option(Protocol) {
 pub const Class = struct {
     value: u64,
 
-    // -- message sending (class methods). Returns are raw u64; use
-    //    msgSendObjN when the method returns an object.
+    // -- message sending (class methods). One generic send: `R` is the
+    //    method's return type (u64 for ids/pointers/ints, Object, f64,
+    //    void, or a by-value struct); the args' static types shape the
+    //    C signature — pass scalars as u64/f64, structs as themselves.
+    //
+    //        const obj: Object = cls.msgSend(Object, sel("alloc"));
 
-    // One generic send over @callC — the suffixed wrappers below are
-    // now just shorthand for it.
     pub cfn msgSend(self: Class, R: type, op: Sel, args: ...) R {
         return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
-    }
-
-    pub fn msgSend0(self: Class, op: Sel) u64 {
-        return rawSend0(self.value, op.value);
-    }
-
-    pub fn msgSend1(self: Class, op: Sel, a: u64) u64 {
-        return rawSend1(self.value, op.value, a);
-    }
-
-    pub fn msgSend2(self: Class, op: Sel, a: u64, b: u64) u64 {
-        return rawSend2(self.value, op.value, a, b);
-    }
-
-    pub fn msgSend3(self: Class, op: Sel, a: u64, b: u64, c3: u64) u64 {
-        return rawSend3(self.value, op.value, a, b, c3);
-    }
-
-    pub fn msgSend4(self: Class, op: Sel, a: u64, b: u64, c4: u64, d: u64) u64 {
-        return rawSend4(self.value, op.value, a, b, c4, d);
-    }
-
-    pub fn msgSendObj0(self: Class, op: Sel) Object {
-        return Object { value: rawSend0(self.value, op.value) };
-    }
-
-    pub fn msgSendObj1(self: Class, op: Sel, a: u64) Object {
-        return Object { value: rawSend1(self.value, op.value, a) };
-    }
-
-    pub fn msgSendObj2(self: Class, op: Sel, a: u64, b: u64) Object {
-        return Object { value: rawSend2(self.value, op.value, a, b) };
-    }
-
-    pub fn msgSendF0(self: Class, op: Sel) f64 {
-        return rawSendF0(self.value, op.value);
-    }
-
-    pub fn msgSendD1(self: Class, op: Sel, a: f64) u64 {
-        return rawSendD1(self.value, op.value, a);
     }
 
     // -- runtime queries
@@ -521,78 +394,20 @@ pub const Object = struct {
         return self.value == 0;
     }
 
-    // -- message sending (instance methods)
+    // -- message sending (instance methods). One generic send; see
+    //    Class.msgSend above for the R / argument-type rules.
+    //
+    //        const d: f64 = obj.msgSend(f64, sel("doubleValue"));
+    //        obj.msgSend(void, sel("setAlphaValue:"), 0.5);
 
     pub cfn msgSend(self: Object, R: type, op: Sel, args: ...) R {
         return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
     }
 
+    // Invoke a selector on the superclass (objc_msgSendSuper).
     pub cfn msgSendSuper(self: Object, R: type, superclass: Class, op: Sel, args: ...) R {
         var sup: ObjcSuper = ObjcSuper { receiver: self.value, superClass: superclass.value };
         return @callC(R, objc_msgSendSuper as u64, (&sup) as u64, op.value, args...);
-    }
-
-    pub fn msgSend0(self: Object, op: Sel) u64 {
-        return rawSend0(self.value, op.value);
-    }
-
-    pub fn msgSend1(self: Object, op: Sel, a: u64) u64 {
-        return rawSend1(self.value, op.value, a);
-    }
-
-    pub fn msgSend2(self: Object, op: Sel, a: u64, b: u64) u64 {
-        return rawSend2(self.value, op.value, a, b);
-    }
-
-    pub fn msgSend3(self: Object, op: Sel, a: u64, b: u64, c3: u64) u64 {
-        return rawSend3(self.value, op.value, a, b, c3);
-    }
-
-    pub fn msgSend4(self: Object, op: Sel, a: u64, b: u64, c4: u64, d: u64) u64 {
-        return rawSend4(self.value, op.value, a, b, c4, d);
-    }
-
-    pub fn msgSendObj0(self: Object, op: Sel) Object {
-        return Object { value: rawSend0(self.value, op.value) };
-    }
-
-    pub fn msgSendObj1(self: Object, op: Sel, a: u64) Object {
-        return Object { value: rawSend1(self.value, op.value, a) };
-    }
-
-    pub fn msgSendObj2(self: Object, op: Sel, a: u64, b: u64) Object {
-        return Object { value: rawSend2(self.value, op.value, a, b) };
-    }
-
-    // f64 (CGFloat / NSTimeInterval / double) returns.
-    pub fn msgSendF0(self: Object, op: Sel) f64 {
-        return rawSendF0(self.value, op.value);
-    }
-
-    pub fn msgSendF1(self: Object, op: Sel, a: u64) f64 {
-        return rawSendF1(self.value, op.value, a);
-    }
-
-    // f64 arguments.
-    pub fn msgSendD1(self: Object, op: Sel, a: f64) u64 {
-        return rawSendD1(self.value, op.value, a);
-    }
-
-    pub fn msgSendD2(self: Object, op: Sel, a: f64, b: f64) u64 {
-        return rawSendD2(self.value, op.value, a, b);
-    }
-
-    // Invoke a selector on the superclass (objc_msgSendSuper).
-    pub fn msgSendSuper0(self: Object, superclass: Class, op: Sel) u64 {
-        return rawSendSuper0(self.value, superclass.value, op.value);
-    }
-
-    pub fn msgSendSuper1(self: Object, superclass: Class, op: Sel, a: u64) u64 {
-        return rawSendSuper1(self.value, superclass.value, op.value, a);
-    }
-
-    pub fn msgSendSuper2(self: Object, superclass: Class, op: Sel, a: u64, b: u64) u64 {
-        return rawSendSuper2(self.value, superclass.value, op.value, a, b);
     }
 
     // -- runtime queries
@@ -651,7 +466,7 @@ pub const Object = struct {
         if (getter == 0) {
             getter = sel_registerName(name.ptr);
         }
-        return rawSend0(self.value, getter);
+        return @callC(u64, objc_msgSend as u64, self.value, getter);
     }
 
     pub fn getPropertyObj(self: Object, name: []u8) Object {
@@ -685,7 +500,7 @@ pub const Object = struct {
             buf[3 + name.len] = 58;   // ':'
             setter = sel_registerName(buf.asPtr());
         }
-        rawSend1(self.value, setter, v);
+        @callC(void, objc_msgSend as u64, self.value, setter, v);
     }
 };
 
