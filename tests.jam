@@ -34,17 +34,17 @@ fn mustProtocol(name: []u8) Protocol {
 }
 
 fn retainCount(obj: Object) u64 {
-    return obj.msgSend0(sel("retainCount"));
+    return obj.msgSend(u64, sel("retainCount"));
 }
 
 fn nsString(s: []u8) Object {
     objc.loadFoundation();
     const cls: Class = mustClass("NSString");
-    return cls.msgSendObj1(sel("stringWithUTF8String:"), s.ptr as u64);
+    return cls.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
 }
 
 fn utf8(obj: Object) []u8 {
-    const p: u64 = obj.msgSend0(sel("UTF8String"));
+    const p: u64 = obj.msgSend(u64, sel("UTF8String"));
     return objc.cstr(p as *const[] u8);
 }
 
@@ -76,31 +76,31 @@ tfn getClassMissing() {
 tfn allocInitDealloc() {
     const NSObject: Class = mustClass("NSObject");
 
-    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
+    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
     assert((obj.value != 0) as u8, 1);
     assert(eq(obj.getClassName(), "NSObject") as u8, 1);
-    obj.msgSend0(sel("init"));
-    obj.msgSend0(sel("dealloc"));
+    obj.msgSend(u64, sel("init"));
+    obj.msgSend(void, sel("dealloc"));
 }
 
 tfn objectGetClass() {
     const NSObject: Class = mustClass("NSObject");
-    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
-    obj.msgSend0(sel("init"));
+    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    obj.msgSend(u64, sel("init"));
 
     match (obj.getClass()) {
         Option(Class).Some(cls) { assert((cls.value == NSObject.value) as u8, 1); }
         Option(Class).None      { assert(0, 1); }
     }
-    obj.msgSend0(sel("dealloc"));
+    obj.msgSend(void, sel("dealloc"));
 }
 
 // --- object.zig: retain/release ----------------------------------------------
 
 tfn retainRelease() {
     const NSObject: Class = mustClass("NSObject");
-    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
-    obj.msgSend0(sel("init"));
+    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    obj.msgSend(u64, sel("init"));
     assert(retainCount(obj), 1);
 
     obj.retain();
@@ -109,25 +109,25 @@ tfn retainRelease() {
     obj.release();
     assert(retainCount(obj), 1);
 
-    obj.msgSend0(sel("dealloc"));
+    obj.msgSend(void, sel("dealloc"));
 }
 
 // --- object.zig: msgSend with wrapper args -----------------------------------
 
 tfn msgSendWithClassAndSelArgs() {
     const NSObject: Class = mustClass("NSObject");
-    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
-    obj.msgSend0(sel("init"));
+    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    obj.msgSend(u64, sel("init"));
 
     // -[NSObject isKindOfClass:]
-    const isKind: u64 = obj.msgSend1(sel("isKindOfClass:"), NSObject.value);
+    const isKind: u64 = obj.msgSend(u64, sel("isKindOfClass:"), NSObject.value);
     assert((isKind & 0xFF) as u8, 1);
 
     // -[NSObject respondsToSelector:]
-    const responds: u64 = obj.msgSend1(sel("respondsToSelector:"), sel("init").value);
+    const responds: u64 = obj.msgSend(u64, sel("respondsToSelector:"), sel("init").value);
     assert((responds & 0xFF) as u8, 1);
 
-    obj.msgSend0(sel("dealloc"));
+    obj.msgSend(void, sel("dealloc"));
 }
 
 // --- class.zig: getProperty / copyPropertyList -------------------------------
@@ -203,9 +203,9 @@ tfn allocateClassPairAndReplaceMethod() {
     myClass.replaceMethod("hash", hash69 as u64);
     objc.registerClassPair(myClass);
 
-    const obj: Object = myClass.msgSendObj0(sel("alloc"));
-    assert(obj.msgSend0(sel("hash")), 69);
-    obj.msgSend0(sel("dealloc"));
+    const obj: Object = myClass.msgSend(Object, sel("alloc"));
+    assert(obj.msgSend(u64, sel("hash")), 69);
+    obj.msgSend(void, sel("dealloc"));
 
     objc.disposeClassPair(myClass);
 }
@@ -228,9 +228,10 @@ tfn addMethod() {
     assert(myClass.addMethod("my_addition", myAddition as u64, "i@:ii") as u8, 1);
     objc.registerClassPair(myClass);
 
-    const obj: Object = myClass.msgSendObj0(sel("alloc")).msgSendObj0(sel("init"));
-    assert(obj.msgSend2(sel("my_addition"), 2, 3), 5);
-    obj.msgSend0(sel("dealloc"));
+    const alloced: Object = myClass.msgSend(Object, sel("alloc"));
+    const obj: Object = alloced.msgSend(Object, sel("init"));
+    assert(obj.msgSend(i32, sel("my_addition"), 2 as i32, 3 as i32) as u64, 5);
+    obj.msgSend(void, sel("dealloc"));
 }
 
 // --- class.zig: ivars ------------------------------------------------------------
@@ -248,13 +249,13 @@ tfn ivars() {
     assert(myClass.addIvar("my_ivar") as u8, 1);
     objc.registerClassPair(myClass);
 
-    const obj: Object = myClass.msgSendObj0(sel("alloc"));
+    const obj: Object = myClass.msgSend(Object, sel("alloc"));
     const ivarVal: Object = nsString("69---nice");
     obj.setInstanceVariable("my_ivar", ivarVal);
     const back: Object = obj.getInstanceVariable("my_ivar");
     assert(eq(utf8(back), "69---nice") as u8, 1);
 
-    obj.msgSend0(sel("dealloc"));
+    obj.msgSend(void, sel("dealloc"));
 }
 
 // --- object.zig: property helpers -------------------------------------------------
@@ -262,22 +263,25 @@ tfn ivars() {
 tfn getPropertyHelper() {
     objc.loadFoundation();
     const NSObject: Class = mustClass("NSObject");
-    const obj: Object = NSObject.msgSendObj0(sel("alloc"));
-    obj.msgSend0(sel("init"));
+    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    obj.msgSend(u64, sel("init"));
 
     const name: Object = obj.getPropertyObj("className");
     assert(eq(utf8(name), "NSObject") as u8, 1);
 
-    obj.msgSend0(sel("dealloc"));
+    obj.msgSend(void, sel("dealloc"));
 }
 
 // --- msg_send.zig: msgSendSuper ----------------------------------------------------
 
 fn subclassInit(target: u64, op: u64) u64 {
     const obj: Object = Object.fromId(target);
-    const clsName: []u8 = "NSObject";
-    const NSObject: Class = Class { value: objc.objc_getClass(clsName.ptr) };
-    obj.msgSendSuper0(NSObject, sel("init"));
+    var NSObject: Class = Class { value: 0 };
+    match (objc.getClass("NSObject")) {
+        Option(Class).Some(c) { NSObject = c; }
+        Option(Class).None    { return 0; }
+    }
+    obj.msgSendSuper(u64, NSObject, sel("init"));
     return target;
 }
 
@@ -293,10 +297,10 @@ tfn subclassSuperInit() {
     sub.replaceMethod("init", subclassInit as u64);
     objc.registerClassPair(sub);
 
-    const obj: Object = sub.msgSendObj0(sel("alloc"));
-    const inited: u64 = obj.msgSend0(sel("init"));
+    const obj: Object = sub.msgSend(Object, sel("alloc"));
+    const inited: u64 = obj.msgSend(u64, sel("init"));
     assert((inited == obj.value) as u8, 1);
-    obj.msgSend0(sel("dealloc"));
+    obj.msgSend(void, sel("dealloc"));
 
     objc.disposeClassPair(sub);
 }
@@ -306,16 +310,16 @@ tfn subclassSuperInit() {
 tfn floatReturn() {
     objc.loadFoundation();
     const NSDate: Class = mustClass("NSDate");
-    const date: Object = NSDate.msgSendObj0(sel("date"));
-    const secs: f64 = date.msgSendF0(sel("timeIntervalSince1970"));
+    const date: Object = NSDate.msgSend(Object, sel("date"));
+    const secs: f64 = date.msgSend(f64, sel("timeIntervalSince1970"));
     assert((secs > 1700000000.0) as u8, 1);
 }
 
 tfn floatArgRoundTrip() {
     objc.loadFoundation();
     const NSNumber: Class = mustClass("NSNumber");
-    const num: Object = Object.fromId(NSNumber.msgSendD1(sel("numberWithDouble:"), 3.5));
-    assert((num.msgSendF0(sel("doubleValue")) == 3.5) as u8, 1);
+    const num: Object = NSNumber.msgSend(Object, sel("numberWithDouble:"), 3.5);
+    assert((num.msgSend(f64, sel("doubleValue")) == 3.5) as u8, 1);
 }
 
 // --- object.zig: tagged pointers -----------------------------------------------------
@@ -325,8 +329,8 @@ tfn taggedPointer() {
     const NSNumber: Class = mustClass("NSNumber");
     // Small NSNumbers are tagged pointers — not heap objects. They must
     // still message correctly through our u64-based Object.
-    const num: Object = NSNumber.msgSendObj1(sel("numberWithChar:"), 5);
-    assert(num.msgSend0(sel("charValue")) & 0xFF, 5);
+    const num: Object = NSNumber.msgSend(Object, sel("numberWithChar:"), 5 as u64);
+    assert(num.msgSend(u64, sel("charValue")) & 0xFF, 5);
 }
 
 // --- autorelease.zig ------------------------------------------------------------------
@@ -351,10 +355,10 @@ tfn iterateNSArray() {
     const NSMutableArray: Class = mustClass("NSMutableArray");
     const NSNumber: Class = mustClass("NSNumber");
 
-    const array: Object = NSMutableArray.msgSendObj1(sel("arrayWithCapacity:"), 10);
+    const array: Object = NSMutableArray.msgSend(Object, sel("arrayWithCapacity:"), 10 as u64);
     for i in 0:10 {
-        const num: Object = NSNumber.msgSendObj1(sel("numberWithInt:"), i as u64);
-        array.msgSend1(sel("addObject:"), num.value);
+        const num: Object = NSNumber.msgSend(Object, sel("numberWithInt:"), i as u64);
+        array.msgSend(void, sel("addObject:"), num.value);
     }
 
     var result: u64 = 0;
@@ -362,7 +366,7 @@ tfn iterateNSArray() {
     loop {
         match (it.next()) {
             Option(Object).Some(elem) {
-                result = result * 10 + elem.msgSend0(sel("intValue"));
+                result = result * 10 + elem.msgSend(u64, sel("intValue"));
             }
             Option(Object).None { break; }
         }
