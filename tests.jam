@@ -12,6 +12,8 @@ const { eq } = import("std").string;
 const objc = import("objc");
 const { Object, Class, Sel, Property, Protocol, AutoreleasePool, sel } = import("objc");
 const { Iterator } = import("iterator");
+const block = import("block");
+const { Block } = import("block");
 
 // --- helpers ---------------------------------------------------------------
 
@@ -366,4 +368,26 @@ tfn iterateNSArray() {
         }
     }
     assert(result, 123456789);
+}
+
+// --- block.zig ---------------------------------------------------------------------------
+
+const AddCaps = struct { x: i32, y: i32 };
+const AddBlock = Block(AddCaps);
+
+fn addBlockImpl(ctx: u64) i32 {
+    var caps: *const AddCaps = block.capturesAddr(ctx) as *const AddCaps;
+    return caps.*.x + caps.*.y;
+}
+
+tfn blockInvoke() {
+    var b: AddBlock = AddBlock.init(AddCaps { x: 2, y: 3 }, addBlockImpl as u64);
+    assert(block.invoke0i32((&b) as u64), 5);
+
+    // copy to the heap and invoke the copy
+    const copied: u64 = block.copy((&b) as u64);
+    assert(block.invoke0i32(copied), 5);
+    block.release(copied);
+
+    b.deinit();
 }
