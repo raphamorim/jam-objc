@@ -277,3 +277,60 @@ pub const Sel = struct {
 pub fn sel(name: []u8) Sel {
     return Sel.registerName(name);
 }
+
+// ---------------------------------------------------------------------------
+// Property
+
+pub const Property = struct {
+    value: u64,
+
+    // Returns the name of a property.
+    pub fn getName(self: Property) []u8 {
+        return cstr(property_getName(self.value));
+    }
+
+    // Returns the value of a property attribute ("G", "S", "T", ...).
+    // The returned string is malloc'd: release it with objc.freeCopied.
+    pub fn copyAttributeValue(self: Property, attr: []u8) Option([]u8) {
+        const p: u64 = property_copyAttributeValue(self.value, attr.ptr);
+        if (p == 0) {
+            return Option([]u8).None();
+        }
+        return Option([]u8).Some(cstr(p as *const[] u8));
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Protocol
+
+pub const Protocol = struct {
+    value: u64,
+
+    pub fn conformsToProtocol(self: Protocol, other: Protocol) bool {
+        return fromBool(protocol_conformsToProtocol(self.value, other.value));
+    }
+
+    pub fn isEqual(self: Protocol, other: Protocol) bool {
+        return fromBool(protocol_isEqual(self.value, other.value));
+    }
+
+    pub fn getName(self: Protocol) []u8 {
+        return cstr(protocol_getName(self.value));
+    }
+
+    pub fn getProperty(self: Protocol, name: []u8, isRequired: bool, isInstance: bool) Option(Property) {
+        const p: u64 = protocol_getProperty(self.value, name.ptr, toBool(isRequired), toBool(isInstance));
+        if (p == 0) {
+            return Option(Property).None();
+        }
+        return Option(Property).Some(Property { value: p });
+    }
+};
+
+pub fn getProtocol(name: []u8) Option(Protocol) {
+    const p: u64 = objc_getProtocol(name.ptr);
+    if (p == 0) {
+        return Option(Protocol).None();
+    }
+    return Option(Protocol).Some(Protocol { value: p });
+}
