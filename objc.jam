@@ -204,3 +204,27 @@ pub fn rawSend4(target: u64, op: u64, a: u64, b: u64, c4: u64, d: u64) u64 {
     var send: fn(u64, u64, u64, u64, u64, u64) u64 = caster.f;
     return send(target, op, a, b, c4, d);
 }
+
+pub fn rawSendF0(target: u64, op: u64) f64 {
+    var caster: SigF0 = SigF0 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64) f64 = caster.f;
+    return send(target, op);
+}
+
+pub fn rawSendF1(target: u64, op: u64, a: u64) f64 {
+    var caster: SigF1 = SigF1 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64, u64) f64 = caster.f;
+    return send(target, op, a);
+}
+
+pub fn rawSendD1(target: u64, op: u64, a: f64) u64 {
+    var caster: SigD1 = SigD1 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64, f64) u64 = caster.f;
+    return send(target, op, a);
+}
+
+pub fn rawSendD2(target: u64, op: u64, a: f64, b: f64) u64 {
+    var caster: SigD2 = SigD2 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64, f64, f64) u64 = caster.f;
+    return send(target, op, a, b);
+}
