@@ -1,0 +1,93 @@
+// jam-objc — Objective-C runtime bindings for Jam.
+//
+// A port of mitchellh/zig-objc (vendored in references/zig-objc) to the
+// Jam language. The core trick is the same as the Zig original: the
+// address of `objc_msgSend` is cast to a function pointer matching the
+// *target method's* signature and called through that, so arguments and
+// returns travel in the registers the C ABI expects. Jam has no
+// `@ptrCast`, so the cast goes through an untagged union instead
+// (see the `Sig*` unions below).
+//
+// Differences from zig-objc, forced by Jam (no comptime reflection):
+//   * msgSend is arity/shape-suffixed (`msgSend0..4`, `msgSendF*`,
+//     `msgSendD*`) instead of generic over a tuple. Receivers, objects,
+//     selectors, and pointers all travel as `u64`.
+//   * Methods that return (or take) structs by value — NSRange, NSRect,
+//     CGRect, ... — work via a custom `Sig*` union whose `f` field has
+//     the struct in the signature (e.g. `fn(u64, u64) NSRect`). The
+//     library doesn't ship those shapes; declare your own per method.
+//     Requires a jam built at/after the C-ABI aggregate fix (older
+//     jams miscompiled struct args/returns through fn-pointer calls).
+//   * `addMethod` takes an explicit ObjC type-encoding string ("v@:",
+//     "i@:ii", ...) — there is no comptime encoder.
+//
+// Naming follows zig-objc where a direct equivalent exists.
+//
+// All C strings passed in ([]u8 names) must be null-terminated; Jam
+// string literals are.
+
+const { Option } = import("std").option;
+
+// ---------------------------------------------------------------------------
+// Raw Objective-C runtime ABI (<objc/runtime.h>, <objc/message.h>).
+// `pub` so they stay visible when pub fns here are codegen'd in an
+// importer's compilation context (same pattern as std.process).
+// `id`, `Class`, `SEL`, `Protocol*`, `Ivar`, `objc_property_t` are all
+// pointer-sized — they travel as u64 throughout.
+
+pub extern fn objc_getClass(name: *const[] u8) u64;
+pub extern fn objc_getMetaClass(name: *const[] u8) u64;
+pub extern fn objc_getProtocol(name: *const[] u8) u64;
+pub extern fn objc_allocateClassPair(superclass: u64, name: *const[] u8, extraBytes: u64) u64;
+pub extern fn objc_registerClassPair(cls: u64);
+pub extern fn objc_disposeClassPair(cls: u64);
+pub extern fn objc_autoreleasePoolPush() u64;
+pub extern fn objc_autoreleasePoolPop(pool: u64);
+pub extern fn objc_retain(obj: u64) u64;
+pub extern fn objc_release(obj: u64);
+pub extern fn objc_enumerationMutation(obj: u64);
+
+// Never called directly — declared only so their addresses can be taken
+// and punned to properly-typed function pointers. Do not redeclare these
+// with other signatures elsewhere in a program that imports this module.
+pub extern fn objc_msgSend();
+pub extern fn objc_msgSendSuper();
+
+pub extern fn sel_registerName(name: *const[] u8) u64;
+pub extern fn sel_getName(op: u64) *const[] u8;
+
+pub extern fn object_getClass(obj: u64) u64;
+pub extern fn object_getClassName(obj: u64) *const[] u8;
+pub extern fn object_copy(obj: u64, size: u64) u64;
+pub extern fn object_dispose(obj: u64) u64;
+pub extern fn object_isClass(obj: u64) u8;
+pub extern fn object_getInstanceVariable(obj: u64, name: *const[] u8, outValue: u64) u64;
+pub extern fn object_getIvar(obj: u64, ivar: u64) u64;
+pub extern fn object_setIvar(obj: u64, ivar: u64, value: u64);
+
+pub extern fn class_getName(cls: u64) *const[] u8;
+pub extern fn class_getProperty(cls: u64, name: *const[] u8) u64;
+pub extern fn class_copyPropertyList(cls: u64, outCount: *mut u32) u64;
+pub extern fn class_copyProtocolList(cls: u64, outCount: *mut u32) u64;
+pub extern fn class_isMetaClass(cls: u64) u8;
+pub extern fn class_getInstanceSize(cls: u64) u64;
+pub extern fn class_respondsToSelector(cls: u64, op: u64) u8;
+pub extern fn class_conformsToProtocol(cls: u64, protocol: u64) u8;
+pub extern fn class_replaceMethod(cls: u64, op: u64, imp: u64, types: u64) u64;
+pub extern fn class_addMethod(cls: u64, op: u64, imp: u64, types: *const[] u8) u8;
+pub extern fn class_addIvar(cls: u64, name: *const[] u8, size: u64, alignment: u8, types: *const[] u8) u8;
+
+pub extern fn protocol_conformsToProtocol(proto: u64, other: u64) u8;
+pub extern fn protocol_isEqual(proto: u64, other: u64) u8;
+pub extern fn protocol_getName(proto: u64) *const[] u8;
+pub extern fn protocol_getProperty(proto: u64, name: *const[] u8, isRequiredProperty: u8, isInstanceProperty: u8) u64;
+
+pub extern fn property_getName(prop: u64) *const[] u8;
+pub extern fn property_copyAttributeValue(prop: u64, attributeName: *const[] u8) u64;
+
+// libc / libSystem
+pub extern fn strlen(s: *const[] u8) u64;
+pub extern fn malloc(size: u64) *mut[] u8;
+pub extern fn free(ptr: *mut[] u8);
+pub extern fn dlopen(path: *const[] u8, mode: i32) u64;
+pub extern fn dlsym(handle: u64, name: *const[] u8) u64;
