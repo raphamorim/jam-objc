@@ -126,3 +126,58 @@ tfn msgSendWithClassAndSelArgs() {
 
     obj.msgSend0(sel("dealloc"));
 }
+
+// --- class.zig: getProperty / copyPropertyList -------------------------------
+
+tfn classGetProperty() {
+    objc.loadFoundation();
+    const NSObject: Class = mustClass("NSObject");
+
+    match (NSObject.getProperty("className")) {
+        Option(Property).Some(prop) { assert(eq(prop.getName(), "className") as u8, 1); }
+        Option(Property).None       { assert(0, 1); }
+    }
+
+    match (NSObject.getProperty("nope")) {
+        Option(Property).Some(prop) { assert(prop.value, 1); }   // fail
+        Option(Property).None       { assert(1, 1); }
+    }
+}
+
+tfn copyPropertyList() {
+    objc.loadFoundation();
+    const NSObject: Class = mustClass("NSObject");
+    var list = NSObject.copyPropertyList();
+    assert((list.len > 0) as u8, 1);
+    assert((list.at(0).value != 0) as u8, 1);
+    // list drops here, freeing the runtime allocation
+}
+
+// --- protocol.zig -------------------------------------------------------------
+
+tfn protocols() {
+    objc.loadFoundation();
+    // zig-objc uses NSFileManagerDelegate here, but a protocol is only
+    // registered when a loaded image *references* it; with Foundation
+    // dlopen'd (instead of linked) NSFileManagerDelegate is absent even
+    // in plain C. NSURLSessionDelegate is always registered.
+    const urlProto: Protocol = mustProtocol("NSURLSessionDelegate");
+    assert(eq(urlProto.getName(), "NSURLSessionDelegate") as u8, 1);
+
+    const objProto: Protocol = mustProtocol("NSObject");
+    assert(urlProto.conformsToProtocol(objProto) as u8, 1);
+    assert(urlProto.isEqual(urlProto) as u8, 1);
+    assert(urlProto.isEqual(objProto) as u8, 0);
+
+    match (objProto.getProperty("hash", true, true)) {
+        Option(Property).Some(prop) { assert(eq(prop.getName(), "hash") as u8, 1); }
+        Option(Property).None       { assert(0, 1); }
+    }
+}
+
+tfn classConformsToProtocol() {
+    objc.loadFoundation();
+    const NSObject: Class = mustClass("NSObject");
+    const objProto: Protocol = mustProtocol("NSObject");
+    assert(NSObject.conformsToProtocol(objProto) as u8, 1);
+}
