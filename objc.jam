@@ -255,3 +255,25 @@ pub fn rawSendSuper2(receiver: u64, superclass: u64, op: u64, a: u64, b: u64) u6
     var send: fn(u64, u64, u64, u64) u64 = caster.f;
     return send((&sup) as u64, op, a, b);
 }
+
+// ---------------------------------------------------------------------------
+// Sel
+
+pub const Sel = struct {
+    value: u64,
+
+    // Registers a method name with the runtime and returns the selector.
+    pub fn registerName(name: []u8) Sel {
+        return Sel { value: sel_registerName(name.ptr) };
+    }
+
+    // Returns the name of the method this selector refers to.
+    pub fn getName(self: Sel) []u8 {
+        return cstr(sel_getName(self.value));
+    }
+};
+
+// Shorthand, equivalent to Sel.registerName (zig-objc: `objc.sel`).
+pub fn sel(name: []u8) Sel {
+    return Sel.registerName(name);
+}
