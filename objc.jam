@@ -135,3 +135,72 @@ pub fn loadFoundation() bool {
 pub fn loadAppKit() bool {
     return loadFramework("/System/Library/Frameworks/AppKit.framework/AppKit");
 }
+
+// ---------------------------------------------------------------------------
+// msgSend
+//
+// objc_msgSend must be called as if it were the target method (see the
+// long comment in references/zig-objc/src/msg_send.zig). Each `Sig*`
+// union puns the function's address into one concrete shape:
+//
+//   sigN   : N u64 args -> u64    (ids, pointers, integers, bools, void)
+//   sigFN  : N u64 args -> f64    (CGFloat / NSTimeInterval returns)
+//   sigDN  : N f64 args -> u64    (CGFloat arguments)
+//
+// u64 covers every pointer-sized scalar; narrower C integer arguments
+// (int, BOOL, ...) are widened into the same registers, which the
+// arm64 and x86_64 C ABIs both permit for callee-narrowed parameters.
+//
+// `msgSendAddr`/`msgSendSuperAddr` are public so user code can pun
+// signatures this module doesn't ship (e.g. mixed int/float argument
+// lists) — define your own union in your module:
+//
+//     const MySig = union { addr: u64, f: fn(u64, u64, f64, u64) u64 };
+
+pub const Sig0 = union { addr: u64, f: fn(u64, u64) u64 };
+pub const Sig1 = union { addr: u64, f: fn(u64, u64, u64) u64 };
+pub const Sig2 = union { addr: u64, f: fn(u64, u64, u64, u64) u64 };
+pub const Sig3 = union { addr: u64, f: fn(u64, u64, u64, u64, u64) u64 };
+pub const Sig4 = union { addr: u64, f: fn(u64, u64, u64, u64, u64, u64) u64 };
+pub const SigF0 = union { addr: u64, f: fn(u64, u64) f64 };
+pub const SigF1 = union { addr: u64, f: fn(u64, u64, u64) f64 };
+pub const SigD1 = union { addr: u64, f: fn(u64, u64, f64) u64 };
+pub const SigD2 = union { addr: u64, f: fn(u64, u64, f64, f64) u64 };
+
+pub fn msgSendAddr() u64 {
+    return objc_msgSend as u64;
+}
+
+pub fn msgSendSuperAddr() u64 {
+    return objc_msgSendSuper as u64;
+}
+
+pub fn rawSend0(target: u64, op: u64) u64 {
+    var caster: Sig0 = Sig0 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64) u64 = caster.f;
+    return send(target, op);
+}
+
+pub fn rawSend1(target: u64, op: u64, a: u64) u64 {
+    var caster: Sig1 = Sig1 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64, u64) u64 = caster.f;
+    return send(target, op, a);
+}
+
+pub fn rawSend2(target: u64, op: u64, a: u64, b: u64) u64 {
+    var caster: Sig2 = Sig2 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64, u64, u64) u64 = caster.f;
+    return send(target, op, a, b);
+}
+
+pub fn rawSend3(target: u64, op: u64, a: u64, b: u64, c3: u64) u64 {
+    var caster: Sig3 = Sig3 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64, u64, u64, u64) u64 = caster.f;
+    return send(target, op, a, b, c3);
+}
+
+pub fn rawSend4(target: u64, op: u64, a: u64, b: u64, c4: u64, d: u64) u64 {
+    var caster: Sig4 = Sig4 { addr: objc_msgSend as u64 };
+    var send: fn(u64, u64, u64, u64, u64, u64) u64 = caster.f;
+    return send(target, op, a, b, c4, d);
+}
