@@ -334,3 +334,115 @@ pub fn getProtocol(name: []u8) Option(Protocol) {
     }
     return Option(Protocol).Some(Protocol { value: p });
 }
+
+// ---------------------------------------------------------------------------
+// Class
+
+pub const Class = struct {
+    value: u64,
+
+    // -- message sending (class methods). Returns are raw u64; use
+    //    msgSendObjN when the method returns an object.
+
+    pub fn msgSend0(self: Class, op: Sel) u64 {
+        return rawSend0(self.value, op.value);
+    }
+
+    pub fn msgSend1(self: Class, op: Sel, a: u64) u64 {
+        return rawSend1(self.value, op.value, a);
+    }
+
+    pub fn msgSend2(self: Class, op: Sel, a: u64, b: u64) u64 {
+        return rawSend2(self.value, op.value, a, b);
+    }
+
+    pub fn msgSend3(self: Class, op: Sel, a: u64, b: u64, c3: u64) u64 {
+        return rawSend3(self.value, op.value, a, b, c3);
+    }
+
+    pub fn msgSend4(self: Class, op: Sel, a: u64, b: u64, c4: u64, d: u64) u64 {
+        return rawSend4(self.value, op.value, a, b, c4, d);
+    }
+
+    pub fn msgSendObj0(self: Class, op: Sel) Object {
+        return Object { value: rawSend0(self.value, op.value) };
+    }
+
+    pub fn msgSendObj1(self: Class, op: Sel, a: u64) Object {
+        return Object { value: rawSend1(self.value, op.value, a) };
+    }
+
+    pub fn msgSendObj2(self: Class, op: Sel, a: u64, b: u64) Object {
+        return Object { value: rawSend2(self.value, op.value, a, b) };
+    }
+
+    pub fn msgSendF0(self: Class, op: Sel) f64 {
+        return rawSendF0(self.value, op.value);
+    }
+
+    pub fn msgSendD1(self: Class, op: Sel, a: f64) u64 {
+        return rawSendD1(self.value, op.value, a);
+    }
+
+    // -- runtime queries
+
+    pub fn getName(self: Class) []u8 {
+        return cstr(class_getName(self.value));
+    }
+
+    // Returns a property with the given name, if declared.
+    pub fn getProperty(self: Class, name: []u8) Option(Property) {
+        const p: u64 = class_getProperty(self.value, name.ptr);
+        if (p == 0) {
+            return Option(Property).None();
+        }
+        return Option(Property).Some(Property { value: p });
+    }
+
+    // Properties declared by the class. Free with `deinit` (or let it drop).
+    pub fn copyPropertyList(self: Class) PropertyList {
+        var count: u32 = 0;
+        const list: u64 = class_copyPropertyList(self.value, &count);
+        return PropertyList { items: list as *const[] u64, len: count };
+    }
+
+    pub fn isMetaClass(self: Class) bool {
+        return fromBool(class_isMetaClass(self.value));
+    }
+
+    pub fn getInstanceSize(self: Class) u64 {
+        return class_getInstanceSize(self.value);
+    }
+
+    pub fn respondsToSelector(self: Class, op: Sel) bool {
+        return fromBool(class_respondsToSelector(self.value, op.value));
+    }
+
+    pub fn conformsToProtocol(self: Class, protocol: Protocol) bool {
+        return fromBool(class_conformsToProtocol(self.value, protocol.value));
+    }
+
+    // -- class construction (between allocateClassPair / registerClassPair)
+
+    // Replace (override) a method previously defined, e.g. by a superclass.
+    // `imp` is a Jam function coerced with `as u64`; it must take
+    // (target: u64, op: u64, ...) and use only C-ABI compatible types.
+    pub fn replaceMethod(self: Class, name: []u8, imp: u64) {
+        class_replaceMethod(self.value, sel_registerName(name.ptr), imp, 0);
+    }
+
+    // Add a new method. `types` is the ObjC type-encoding string for the
+    // signature, e.g. "v@:" for `- (void)m`, "i@:ii" for
+    // `- (int)m:(int)a :(int)b`. (zig-objc computes this at comptime;
+    // Jam cannot, so it is explicit.)
+    pub fn addMethod(self: Class, name: []u8, imp: u64, types: []u8) bool {
+        return fromBool(class_addMethod(self.value, sel_registerName(name.ptr), imp, types.ptr));
+    }
+
+    // Add an ivar of type `id`. Only valid between allocateClassPair and
+    // registerClassPair.
+    pub fn addIvar(self: Class, name: []u8) bool {
+        const idEncoding: []u8 = "@";
+        return fromBool(class_addIvar(self.value, name.ptr, 8, 3, idEncoding.ptr));
+    }
+};
