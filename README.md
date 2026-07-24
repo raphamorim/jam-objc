@@ -145,6 +145,8 @@ Pass `(&b) as u64` as a method argument wherever ObjC expects a block.
 
 ## Known limitations
 
+(`LIMITATIONS.md` has the analysis of what fixing each would take.)
+
 * arm64 only. x86_64 needs `objc_msgSend_fpret`/`_stret` dispatch per
   return type (zig-objc selects these at comptime).
 * By-value structs have to fit what `@callC` accepts: up to four floats
