@@ -694,3 +694,29 @@ fn propertyAccessorSel(obj: u64, name: []u8, attr: []u8) u64 {
     free(val as *mut[] u8);
     return result;
 }
+
+// ---------------------------------------------------------------------------
+// AutoreleasePool
+//
+// zig-objc pairs init() with an explicit deinit(). Jam has linear drops,
+// so the pool pops itself at scope exit:
+//
+//     {
+//         var pool: AutoreleasePool = AutoreleasePool.init();
+//         ... autoreleased work ...
+//     }   // popped here
+
+pub const AutoreleasePool = struct {
+    ptr: u64,
+
+    pub fn init() AutoreleasePool {
+        return AutoreleasePool { ptr: objc_autoreleasePoolPush() };
+    }
+
+    // `cfn drop` (not `fn drop`) registers with MVS auto-drop, so the
+    // pool actually pops at scope exit. A plain `fn drop` would never
+    // fire — the pool would leak and never balance its push.
+    cfn drop(self: mut AutoreleasePool) {
+        objc_autoreleasePoolPop(self.ptr);
+    }
+};
