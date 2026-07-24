@@ -1,0 +1,69 @@
+// jam-objc test suite — ports of the inline `test` blocks in
+// references/zig-objc/src/*.zig.
+//
+// Run with:  jam test -lobjc tests.jam   (or `make test`)
+//
+// Foundation classes (NSString, NSNumber, NSArray, ...) are loaded via
+// dlopen because `jam` has no `-framework` linker flag.
+
+const { assert } = import("test");
+const { Option } = import("std").option;
+const { eq } = import("std").string;
+const objc = import("objc");
+const { Object, Class, Sel, Property, Protocol, AutoreleasePool, sel } = import("objc");
+
+// --- helpers ---------------------------------------------------------------
+
+fn mustClass(name: []u8) Class {
+    match (objc.getClass(name)) {
+        Option(Class).Some(found) { return found; }
+        Option(Class).None        { assert(0, 1); }
+    }
+    return Class { value: 0 };
+}
+
+fn mustProtocol(name: []u8) Protocol {
+    match (objc.getProtocol(name)) {
+        Option(Protocol).Some(found) { return found; }
+        Option(Protocol).None        { assert(0, 1); }
+    }
+    return Protocol { value: 0 };
+}
+
+fn retainCount(obj: Object) u64 {
+    return obj.msgSend0(sel("retainCount"));
+}
+
+fn nsString(s: []u8) Object {
+    objc.loadFoundation();
+    const cls: Class = mustClass("NSString");
+    return cls.msgSendObj1(sel("stringWithUTF8String:"), s.ptr as u64);
+}
+
+fn utf8(obj: Object) []u8 {
+    const p: u64 = obj.msgSend0(sel("UTF8String"));
+    return objc.cstr(p as *const[] u8);
+}
+
+// --- sel.zig ----------------------------------------------------------------
+
+tfn selRegisterAndName() {
+    const s: Sel = Sel.registerName("yo");
+    assert(eq(s.getName(), "yo") as u8, 1);
+}
+
+// --- class.zig: getClass ----------------------------------------------------
+
+tfn getClassFound() {
+    match (objc.getClass("NSObject")) {
+        Option(Class).Some(found) { assert((found.value != 0) as u8, 1); }
+        Option(Class).None        { assert(0, 1); }
+    }
+}
+
+tfn getClassMissing() {
+    match (objc.getClass("NoWay")) {
+        Option(Class).Some(found) { assert(found.value, 1); }   // fail
+        Option(Class).None        { assert(1, 1); }
+    }
+}
