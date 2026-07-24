@@ -91,3 +91,47 @@ pub extern fn malloc(size: u64) *mut[] u8;
 pub extern fn free(ptr: *mut[] u8);
 pub extern fn dlopen(path: *const[] u8, mode: i32) u64;
 pub extern fn dlsym(handle: u64, name: *const[] u8) u64;
+
+// ---------------------------------------------------------------------------
+// Helpers
+
+// Borrow a C string as a []u8 slice (no copy; excludes the trailing NUL).
+pub fn cstr(p: *const[] u8) []u8 {
+    return p[0..strlen(p)];
+}
+
+// ObjC BOOL is one byte (signed char on x86_64, C++ bool on arm64);
+// either way YES has the low byte != 0.
+pub fn fromBool(v: u8) bool {
+    return v != 0;
+}
+
+pub fn toBool(v: bool) u8 {
+    if (v) {
+        return 1;
+    }
+    return 0;
+}
+
+// Frees a string returned by the runtime's copy* functions (e.g.
+// `Property.copyAttributeValue`). Equivalent to zig-objc's `objc.free`.
+pub fn freeCopied(s: []u8) {
+    free(s.ptr as *mut[] u8);
+}
+
+// Load a framework bundle so its classes register with the runtime.
+// `jam` has no `-framework` linker flag, so non-libobjc classes
+// (NSString, NSArray, ...) must be brought in at runtime:
+//
+//     objc.loadFoundation();
+pub fn loadFramework(path: []u8) bool {
+    return dlopen(path.ptr, 1) != 0;   // RTLD_LAZY
+}
+
+pub fn loadFoundation() bool {
+    return loadFramework("/System/Library/Frameworks/Foundation.framework/Foundation");
+}
+
+pub fn loadAppKit() bool {
+    return loadFramework("/System/Library/Frameworks/AppKit.framework/AppKit");
+}
