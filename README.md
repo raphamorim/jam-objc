@@ -132,7 +132,7 @@ const Caps = struct { x: i32, y: i32 };
 const AddBlock = Block(Caps);
 
 fn addImpl(ctx: u64) i32 {
-    var caps: *const Caps = block.capturesAddr(ctx) as *const Caps;
+    var caps: *const Caps = AddBlock.capturesFrom(ctx);
     return caps.*.x + caps.*.y;
 }
 
@@ -158,13 +158,13 @@ GP words, big ones caller-copied with sret returns) — the 48-byte
 
 ## Jam compiler bugs found while porting
 
-Kept as a punch list for ../jam:
+All fixed in ../jam since:
 
-1. `u64 as *const T` miscompiles inside generic instantiations (concrete
-   `T` works). Worked around in `block.jam` by keeping all pointer casts
-   in non-generic code.
+1. `u64 as *const T` miscompiled inside generic instantiations — the
+   cast target skipped the active substitution, and returning `p.*` of a
+   struct broke the byref model. `block.jam`'s captures cast lives
+   inside the generic now.
 2. Duplicate extern declarations with different signatures silently
-   produce renamed LLVM declarations (`objc_msgSend.1`) and call-site
-   miscompiles; identical duplicates are fine.
-3. Trailing commas in call argument lists are a parse error (struct
-   literals accept them).
+   produced renamed LLVM declarations (`objc_msgSend.1`); mismatched
+   duplicates are a compile error now.
+3. Trailing commas in call argument lists were a parse error.

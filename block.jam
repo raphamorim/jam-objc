@@ -21,17 +21,13 @@
 //     const AddBlock = Block(Caps);
 //
 //     fn addImpl(ctx: u64) i32 {
-//         var caps: *const Caps = capturesAddr(ctx) as *const Caps;
+//         var caps: *const Caps = AddBlock.capturesFrom(ctx);
 //         return caps.*.x + caps.*.y;
 //     }
 //
 //     var b: AddBlock = AddBlock.init(Caps { x: 2, y: 3 }, addImpl as u64);
 //     const r: i32 = invoke0i32((&b) as u64);
 //     b.deinit();
-//
-// (`capturesAddr` returns the address of the captures so the cast to the
-// concrete captures type happens in *your* code: Jam currently
-// miscompiles `u64 as *const T` when T is a generic type parameter.)
 //
 // Passing the block to an ObjC method: pass `(&b) as u64` as the
 // argument — the runtime copies it to the heap if it escapes.
@@ -59,14 +55,12 @@ fn stackBlockIsa() u64 {
 }
 
 // Address of the captures region of a block (header is ABI-fixed at 32
-// bytes). Cast the result to `*const YourCaptures` at the call site —
-// the cast must use a concrete type (see the header comment).
+// bytes). `Block(Caps).capturesFrom` gives it back typed.
 pub fn capturesAddr(blockPtr: u64) u64 {
     return blockPtr + HEADER_SIZE;
 }
 
-// malloc + populate a descriptor. Kept out of the generic on purpose:
-// pointer casts inside generic instantiations currently miscompile.
+// malloc + populate a descriptor.
 fn newDescriptor(size: u64) u64 {
     var desc: *mut BlockDescriptor = malloc(@sizeOf(BlockDescriptor)) as *mut BlockDescriptor;
     desc.* = BlockDescriptor { reserved: 0, size: size };
@@ -94,6 +88,12 @@ pub fn Block(Captures: type) type {
                 descriptor: newDescriptor(HEADER_SIZE + @sizeOf(Captures)),
                 captures: caps,
             };
+        }
+
+        // The typed captures of a live block, recovered inside its
+        // invoke fn from the context pointer.
+        pub fn capturesFrom(ctx: u64) *const Captures {
+            return capturesAddr(ctx) as *const Captures;
         }
 
         pub fn deinit(self: mut Self) {

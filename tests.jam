@@ -380,7 +380,8 @@ const AddCaps = struct { x: i32, y: i32 };
 const AddBlock = Block(AddCaps);
 
 fn addBlockImpl(ctx: u64) i32 {
-    var caps: *const AddCaps = block.capturesAddr(ctx) as *const AddCaps;
+    // The cast to the captures type lives inside the generic now.
+    var caps: *const AddCaps = AddBlock.capturesFrom(ctx);
     return caps.*.x + caps.*.y;
 }
 
