@@ -7,6 +7,14 @@ one limitation already fixed.
 
 ## 1. x86_64
 
+Done — `jam -C target=x86_64-apple-darwin` cross-compiles, the whole jam
+corpus and this suite (and jam-metal's GPU tests) pass under Rosetta 2.
+Shipped as sketched: `@isX86_64()` folds per target, `msgSend` selects
+`_stret` per instantiation (`@sizeOf(R) > 16`, dead-dropped on arm64),
+fpret skipped (only long double needs it), and the SysV eightbyte
+classifier landed in jam's `classify_c_abi` with byval stack args.
+Original analysis:
+
 Today the library is arm64-only. The blocker is not the runtime API —
 it's dispatch and ABI:
 

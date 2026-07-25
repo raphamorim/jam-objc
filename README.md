@@ -147,9 +147,13 @@ Pass `(&b) as u64` as a method argument wherever ObjC expects a block.
 
 (`LIMITATIONS.md` has the analysis of what fixing each would take.)
 
-* arm64 only. x86_64 needs `objc_msgSend_fpret`/`_stret` dispatch per
-  return type (zig-objc selects these at comptime).
 * Method type encodings for `addMethod` are hand-written strings.
+
+x86_64 works: build with `jam -C target=x86_64-apple-darwin` and the
+suite runs under Rosetta 2. `msgSend` picks `objc_msgSend_stret` for
+memory-class returns per instantiation (the branch folds away on arm64,
+which has no stret entry point), and jam classifies aggregates per SysV
+on that target — byval stack args, eightbyte coercion, sret returns.
 
 By-value structs of any size work: jam classifies aggregates per the
 C ABI on indirect calls (HFAs in v-registers, small structs packed into

@@ -52,8 +52,13 @@ pub extern fn objc_enumerationMutation(obj: u64);
 // Never called directly — declared only so their addresses can be taken
 // and punned to properly-typed function pointers. Do not redeclare these
 // with other signatures elsewhere in a program that imports this module.
+// The _stret pair exists on x86-64 only (arm64 returns big structs
+// through x8 with the plain entry points); references to them fold away
+// on arm64, so nothing links against a symbol that isn't there.
 pub extern fn objc_msgSend();
 pub extern fn objc_msgSendSuper();
+pub extern fn objc_msgSend_stret();
+pub extern fn objc_msgSendSuper_stret();
 
 pub extern fn sel_registerName(name: *const[] u8) u64;
 pub extern fn sel_getName(op: u64) *const[] u8;
@@ -260,7 +265,16 @@ pub const Class = struct {
     //        const obj: Object = cls.msgSend(Object, sel("alloc"));
 
     pub cfn msgSend(self: Class, R: type, op: Sel, args: ...) R {
-        return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
+        var addr: u64 = objc_msgSend as u64;
+        if (@isX86_64()) {
+            // x86-64 returns memory-class structs through _stret; f64 is
+            // fine through the plain entry (fpret only matters for long
+            // double, which jam doesn't have).
+            if (@sizeOf(R) > 16) {
+                addr = objc_msgSend_stret as u64;
+            }
+        }
+        return @callC(R, addr, self.value, op.value, args...);
     }
 
     // -- runtime queries
@@ -401,13 +415,26 @@ pub const Object = struct {
     //        obj.msgSend(void, sel("setAlphaValue:"), 0.5);
 
     pub cfn msgSend(self: Object, R: type, op: Sel, args: ...) R {
-        return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
+        var addr: u64 = objc_msgSend as u64;
+        if (@isX86_64()) {
+            // See Class.msgSend — _stret for memory-class returns.
+            if (@sizeOf(R) > 16) {
+                addr = objc_msgSend_stret as u64;
+            }
+        }
+        return @callC(R, addr, self.value, op.value, args...);
     }
 
     // Invoke a selector on the superclass (objc_msgSendSuper).
     pub cfn msgSendSuper(self: Object, R: type, superclass: Class, op: Sel, args: ...) R {
+        var addr: u64 = objc_msgSendSuper as u64;
+        if (@isX86_64()) {
+            if (@sizeOf(R) > 16) {
+                addr = objc_msgSendSuper_stret as u64;
+            }
+        }
         var sup: ObjcSuper = ObjcSuper { receiver: self.value, superClass: superclass.value };
-        return @callC(R, objc_msgSendSuper as u64, (&sup) as u64, op.value, args...);
+        return @callC(R, addr, (&sup) as u64, op.value, args...);
     }
 
     // -- runtime queries
