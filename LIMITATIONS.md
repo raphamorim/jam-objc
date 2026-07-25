@@ -120,9 +120,13 @@ strings, revisit if class construction becomes a bigger part of the API.
 
 ## 4. The punch list (compiler bugs that shaped this code)
 
-From README here and in jam-metal, with where the fix goes in `../jam`.
-The handle lookups, the duplicate-extern diagnostic and trailing commas
-are fixed in ../jam; the two `medium` rows are still open:
+From README here and in jam-metal, with where the fix went in `../jam`.
+Every row is fixed now. One correction from the debugging: the
+"slashed-path field access" failure was really bare-name shadowing — an
+imported module's private fn (`metal.jam`'s `nsString`) overwrote the
+entry module's same-named fn in the registry, so calls resolved to the
+wrong module's function. Bare names now belong to the first module that
+claims them, and each module's bodies resolve their own names first.
 
 | bug | fix | size |
 |---|---|---|
