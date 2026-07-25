@@ -395,3 +395,33 @@ tfn blockInvoke() {
 
     b.deinit();
 }
+
+// --- big structs by value (48 bytes, past the register file) -------------------
+
+// NSAffineTransformStruct: six CGFloats. Not an HFA (more than four
+// members), so the C ABI passes it as a caller-copied pointer and
+// returns it through sret in x8 — the memory class end to end.
+const TransformStruct = struct {
+    m11: f64, m12: f64, m21: f64, m22: f64, tx: f64, ty: f64,
+};
+
+tfn bigStructByValueRoundTrip() {
+    objc.loadFoundation();
+    const cls: Class = mustClass("NSAffineTransform");
+    const t: Object = cls.msgSend(Object, sel("transform"));   // identity
+
+    const m: TransformStruct = t.msgSend(TransformStruct, sel("transformStruct"));
+    assert((m.m11 == 1.0) as u8, 1);
+    assert((m.m22 == 1.0) as u8, 1);
+    assert((m.m12 == 0.0) as u8, 1);
+
+    var moved: TransformStruct = m;
+    moved.tx = 42.0;
+    moved.ty = 7.0;
+    t.msgSend(void, sel("setTransformStruct:"), moved);
+
+    const back: TransformStruct = t.msgSend(TransformStruct, sel("transformStruct"));
+    assert((back.tx == 42.0) as u8, 1);
+    assert((back.ty == 7.0) as u8, 1);
+    assert((back.m11 == 1.0) as u8, 1);
+}
