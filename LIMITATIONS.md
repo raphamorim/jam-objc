@@ -67,6 +67,11 @@ target flag. Verdict: doable, mostly blocked on §2.
 
 ## 2. The by-value struct boundary (`@callC` phase 4)
 
+Done — shipped in ../jam as `abi::classify_c_abi` + a classified
+`CallIndirect` lowering, exactly as sketched below; the guard is gone on
+arm64 and `msgSend` takes/returns any C struct. The x86_64 half still
+waits on §1. Original analysis:
+
 The guard admits HFAs of ≤ 4 same-width floats or ≤ 2 full 64-bit
 words; anything else (div_t's `{i32,i32}`, mixed float/int, > 16 bytes)
 is a compile error. That covers every struct Cocoa actually passes, but
@@ -115,7 +120,9 @@ strings, revisit if class construction becomes a bigger part of the API.
 
 ## 4. The punch list (compiler bugs that shaped this code)
 
-From README here and in jam-metal, with where the fix goes in `../jam`:
+From README here and in jam-metal, with where the fix goes in `../jam`.
+The handle lookups, the duplicate-extern diagnostic and trailing commas
+are fixed in ../jam; the two `medium` rows are still open:
 
 | bug | fix | size |
 |---|---|---|

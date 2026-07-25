@@ -149,11 +149,12 @@ Pass `(&b) as u64` as a method argument wherever ObjC expects a block.
 
 * arm64 only. x86_64 needs `objc_msgSend_fpret`/`_stret` dispatch per
   return type (zig-objc selects these at comptime).
-* By-value structs have to fit what `@callC` accepts: up to four floats
-  of one width (NSPoint, NSRect, CGRect, ...) or up to two 64-bit words
-  (NSRange). Anything else is a compile error until jam grows full
-  byval/sret support on indirect calls.
 * Method type encodings for `addMethod` are hand-written strings.
+
+By-value structs of any size work: jam classifies aggregates per the
+C ABI on indirect calls (HFAs in v-registers, small structs packed into
+GP words, big ones caller-copied with sret returns) — the 48-byte
+`NSAffineTransformStruct` round trip in tests.jam is the proof.
 
 ## Jam compiler bugs found while porting
 
