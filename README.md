@@ -30,6 +30,13 @@ Run the test suite (ports of every zig-objc `test` block):
 make test          # = jam test -lobjc tests.jam
 ```
 
+Works as x86_64 too — cross-compile and macOS runs the binaries under
+Rosetta 2:
+
+```sh
+jam -C target=x86_64-apple-darwin test -lobjc tests.jam
+```
+
 ## Examples
 
 [`examples/window.jam`](examples/window.jam) opens a native macOS window
@@ -142,33 +149,3 @@ b.deinit();                      // only after all copies are released
 ```
 
 Pass `(&b) as u64` as a method argument wherever ObjC expects a block.
-
-## Known limitations
-
-(`LIMITATIONS.md` has the analysis of what fixing each would take.)
-
-* Method type encodings for `addMethod` are hand-written strings.
-
-x86_64 works: build with `jam -C target=x86_64-apple-darwin` and the
-suite runs under Rosetta 2. `msgSend` picks `objc_msgSend_stret` for
-memory-class returns per instantiation (the branch folds away on arm64,
-which has no stret entry point), and jam classifies aggregates per SysV
-on that target — byval stack args, eightbyte coercion, sret returns.
-
-By-value structs of any size work: jam classifies aggregates per the
-C ABI on indirect calls (HFAs in v-registers, small structs packed into
-GP words, big ones caller-copied with sret returns) — the 48-byte
-`NSAffineTransformStruct` round trip in tests.jam is the proof.
-
-## Jam compiler bugs found while porting
-
-All fixed in ../jam since:
-
-1. `u64 as *const T` miscompiled inside generic instantiations — the
-   cast target skipped the active substitution, and returning `p.*` of a
-   struct broke the byref model. `block.jam`'s captures cast lives
-   inside the generic now.
-2. Duplicate extern declarations with different signatures silently
-   produced renamed LLVM declarations (`objc_msgSend.1`); mismatched
-   duplicates are a compile error now.
-3. Trailing commas in call argument lists were a parse error.
