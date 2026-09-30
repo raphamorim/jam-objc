@@ -1,0 +1,86 @@
+// jam run -lobjc notify.jam
+const objc = import("../objc");
+const { Object, Class, sel } = import("../objc");
+const { Option } = import("std").option;
+const { println } = import("std/fmt");
+
+fn mustClass(name: []u8) Class {
+    match (objc.getClass(name)) {
+        Some(c) {
+            return c;
+        }
+        None {
+            return Class { value: 0 };
+        }
+    }
+    return Class { value: 0 };
+}
+
+fn nsString(s: []u8) Object {
+    const cls: Class = mustClass("NSString");
+    return cls.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
+}
+
+fn utf8(obj: Object) []u8 {
+    const p: u64 = obj.msgSend(u64, sel("UTF8String"));
+    return objc.cstr(p as *const[] u8);
+}
+
+fn observerOnPing(target: u64, op: u64, note: u64) {
+    const notification: Object = Object.fromId(note);
+    const nameObj: Object = notification.msgSend(Object, sel("name"));
+    const name: []u8 = utf8(nameObj);
+    const payload: Object = notification.msgSend(Object, sel("object"));
+    if (payload.isNil()) {
+        println("received {name} (no payload)");
+        return;
+    }
+    const payloadTxt: []u8 = utf8(payload);
+    println("received {name} with payload: {payloadTxt}");
+}
+
+fn defineObserverClass() Class {
+    var cls: Class = Class { value: 0 };
+    match (objc.allocateClassPair(mustClass("NSObject"), "JamObserver")) {
+        Some(c) { cls = c; }
+        None    { return cls; }
+    }
+    cls.addMethod("onPing:", observerOnPing as u64, "v@:@");
+    objc.registerClassPair(cls);
+    return cls;
+}
+
+fn main() {
+    if (!objc.loadFoundation()) {
+        println("failed to load Foundation");
+        return;
+    }
+
+    const obsCls: Class = defineObserverClass();
+    if (obsCls.value == 0) {
+        println("failed to allocate JamObserver");
+        return;
+    }
+    const obsAlloc: Object = obsCls.msgSend(Object, sel("alloc"));
+    const observer: Object = obsAlloc.msgSend(Object, sel("init"));
+
+    const centerCls: Class = mustClass("NSNotificationCenter");
+    const center: Object = centerCls.msgSend(Object, sel("defaultCenter"));
+    const pingName: Object = nsString("jam.ping");
+
+    center.msgSend(void, sel("addObserver:selector:name:object:"),
+        observer.value, sel("onPing:").value, pingName.value, 0 as u64);
+
+    center.msgSend(void, sel("postNotificationName:object:"),
+        pingName.value, nsString("hello").value);
+    center.msgSend(void, sel("postNotificationName:object:"),
+        pingName.value, nsString("from jam").value);
+    center.msgSend(void, sel("postNotificationName:object:"),
+        pingName.value, 0 as u64);
+
+    center.msgSend(void, sel("removeObserver:"), observer.value);
+    center.msgSend(void, sel("postNotificationName:object:"),
+        pingName.value, nsString("after removal").value);
+
+    println("done");
+}
