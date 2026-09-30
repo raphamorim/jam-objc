@@ -34,7 +34,7 @@ jam test -lobjc tests.jam
 
 Works as x86_64 too, cross-compile and macOS runs the binaries under rosetta 2:
 
-```
+```jam
 jam -C target=x86_64-apple-darwin test -lobjc tests.jam
 ```
 

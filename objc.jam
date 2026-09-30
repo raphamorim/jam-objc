@@ -1,41 +1,4 @@
-// jam-objc — Objective-C runtime bindings for Jam.
-//
-// A port of mitchellh/zig-objc (vendored in references/zig-objc) to the
-// Jam language. The core trick is the same as the Zig original: the
-// address of `objc_msgSend` is called through a function type matching
-// the *target method's* signature, so arguments and returns travel in
-// the registers the C ABI expects. Jam's `@callC` intrinsic synthesizes
-// that signature from the call site's argument types, and the variadic
-// `cfn msgSend` below forwards any argument list into it — one generic
-// send, like zig-objc's `msgSend(ReturnType, sel, .{args})`:
-//
-//     const d: f64 = obj.msgSend(f64, sel("doubleValue"));
-//     win.msgSend(void, sel("setTitle:"), title.value);
-//     const r: NSRect = win.msgSend(NSRect, sel("frame"));
-//
-// Argument types are taken as-is (no coercion): pass pointer-sized
-// scalars as u64 (`x.value`, `p as u64`, `1 as u64`), floats as f64,
-// and by-value structs (NSRect, NSRange, ...) as themselves.
-//
-// Differences from zig-objc:
-//   * The return type is passed explicitly as the first argument —
-//     there is no comptime inference.
-//   * `addMethod` takes an explicit ObjC type-encoding string ("v@:",
-//     "i@:ii", ...) — there is no comptime encoder.
-//
-// Naming follows zig-objc where a direct equivalent exists.
-//
-// All C strings passed in ([]u8 names) must be null-terminated; Jam
-// string literals are.
-
 const { Option } = import("std").option;
-
-// ---------------------------------------------------------------------------
-// Raw Objective-C runtime ABI (<objc/runtime.h>, <objc/message.h>).
-// `pub` so they stay visible when pub fns here are codegen'd in an
-// importer's compilation context (same pattern as std.process).
-// `id`, `Class`, `SEL`, `Protocol*`, `Ivar`, `objc_property_t` are all
-// pointer-sized — they travel as u64 throughout.
 
 pub extern fn objc_getClass(name: *const[] u8) u64;
 pub extern fn objc_getMetaClass(name: *const[] u8) u64;
@@ -49,11 +12,11 @@ pub extern fn objc_retain(obj: u64) u64;
 pub extern fn objc_release(obj: u64);
 pub extern fn objc_enumerationMutation(obj: u64);
 
-// Never called directly — declared only so their addresses can be taken
+// !!note: Never called directly, declared only so their addresses can be taken
 // and punned to properly-typed function pointers. Do not redeclare these
 // with other signatures elsewhere in a program that imports this module.
 // The _stret pair exists on x86-64 only (arm64 returns big structs
-// through x8 with the plain entry points); references to them fold away
+// through x8 with the plain entry points). references to them fold away
 // on arm64, so nothing links against a symbol that isn't there.
 pub extern fn objc_msgSend();
 pub extern fn objc_msgSendSuper();
@@ -92,17 +55,13 @@ pub extern fn protocol_getProperty(proto: u64, name: *const[] u8, isRequiredProp
 pub extern fn property_getName(prop: u64) *const[] u8;
 pub extern fn property_copyAttributeValue(prop: u64, attributeName: *const[] u8) u64;
 
-// libc / libSystem
 pub extern fn strlen(s: *const[] u8) u64;
 pub extern fn malloc(size: u64) *mut[] u8;
 pub extern fn free(ptr: *mut[] u8);
 pub extern fn dlopen(path: *const[] u8, mode: i32) u64;
 pub extern fn dlsym(handle: u64, name: *const[] u8) u64;
 
-// ---------------------------------------------------------------------------
-// Helpers
-
-// Borrow a C string as a []u8 slice (no copy; excludes the trailing NUL).
+// borrow a C string as a []u8 slice (no copy; excludes the trailing NUL)
 pub fn cstr(p: *const[] u8) []u8 {
     return p[0..strlen(p)];
 }
@@ -143,21 +102,6 @@ pub fn loadAppKit() bool {
     return loadFramework("/System/Library/Frameworks/AppKit.framework/AppKit");
 }
 
-// ---------------------------------------------------------------------------
-// msgSend
-//
-// objc_msgSend must be called as if it were the target method (see the
-// long comment in references/zig-objc/src/msg_send.zig). `@callC`
-// synthesizes that exact signature from the call site's argument types
-// and the explicit return type, so `Class.msgSend` / `Object.msgSend`
-// below cover every arity and shape — including by-value structs
-// (NSRect, NSRange, ...) and f64 arguments/returns.
-//
-// `msgSendAddr`/`msgSendSuperAddr` stay public so user code can drive
-// `@callC` directly for anything the wrappers don't express:
-//
-//     var d: f64 = @callC(f64, objc.msgSendAddr(), obj.value, op.value);
-
 pub fn msgSendAddr() u64 {
     return objc_msgSend as u64;
 }
@@ -172,41 +116,29 @@ pub const ObjcSuper = struct {
     superClass: u64,
 };
 
-// ---------------------------------------------------------------------------
-// Sel
-
 pub const Sel = struct {
     value: u64,
 
-    // Registers a method name with the runtime and returns the selector.
     pub fn registerName(name: []u8) Sel {
         return Sel { value: sel_registerName(name.ptr) };
     }
 
-    // Returns the name of the method this selector refers to.
     pub fn getName(self: Sel) []u8 {
         return cstr(sel_getName(self.value));
     }
 };
 
-// Shorthand, equivalent to Sel.registerName (zig-objc: `objc.sel`).
 pub fn sel(name: []u8) Sel {
     return Sel.registerName(name);
 }
 
-// ---------------------------------------------------------------------------
-// Property
-
 pub const Property = struct {
     value: u64,
 
-    // Returns the name of a property.
     pub fn getName(self: Property) []u8 {
         return cstr(property_getName(self.value));
     }
 
-    // Returns the value of a property attribute ("G", "S", "T", ...).
-    // The returned string is malloc'd: release it with objc.freeCopied.
     pub fn copyAttributeValue(self: Property, attr: []u8) Option([]u8) {
         const p: u64 = property_copyAttributeValue(self.value, attr.ptr);
         if (p == 0) {
@@ -215,9 +147,6 @@ pub const Property = struct {
         return Option([]u8).Some(cstr(p as *const[] u8));
     }
 };
-
-// ---------------------------------------------------------------------------
-// Protocol
 
 pub const Protocol = struct {
     value: u64,
@@ -251,25 +180,15 @@ pub fn getProtocol(name: []u8) Option(Protocol) {
     return Option(Protocol).Some(Protocol { value: p });
 }
 
-// ---------------------------------------------------------------------------
-// Class
-
 pub const Class = struct {
     value: u64,
-
-    // -- message sending (class methods). One generic send: `R` is the
-    //    method's return type (u64 for ids/pointers/ints, Object, f64,
-    //    void, or a by-value struct); the args' static types shape the
-    //    C signature — pass scalars as u64/f64, structs as themselves.
-    //
-    //        const obj: Object = cls.msgSend(Object, sel("alloc"));
 
     pub cfn msgSend(self: Class, R: type, op: Sel, args: ...) R {
         var addr: u64 = objc_msgSend as u64;
         if (@isX86_64()) {
             // x86-64 returns memory-class structs through _stret; f64 is
             // fine through the plain entry (fpret only matters for long
-            // double, which jam doesn't have).
+            // double, which jam doesn't have yet)
             if (@sizeOf(R) > 16) {
                 addr = objc_msgSend_stret as u64;
             }
@@ -277,13 +196,10 @@ pub const Class = struct {
         return @callC(R, addr, self.value, op.value, args...);
     }
 
-    // -- runtime queries
-
     pub fn getName(self: Class) []u8 {
         return cstr(class_getName(self.value));
     }
 
-    // Returns a property with the given name, if declared.
     pub fn getProperty(self: Class, name: []u8) Option(Property) {
         const p: u64 = class_getProperty(self.value, name.ptr);
         if (p == 0) {
@@ -292,7 +208,7 @@ pub const Class = struct {
         return Option(Property).Some(Property { value: p });
     }
 
-    // Properties declared by the class. Free with `deinit` (or let it drop).
+    // Properties declared by the class. Free with `deinit` (or let it drop)
     pub fn copyPropertyList(self: Class) PropertyList {
         var count: u32 = 0;
         const list: u64 = class_copyPropertyList(self.value, &count);
@@ -315,32 +231,23 @@ pub const Class = struct {
         return fromBool(class_conformsToProtocol(self.value, protocol.value));
     }
 
-    // -- class construction (between allocateClassPair / registerClassPair)
-
-    // Replace (override) a method previously defined, e.g. by a superclass.
-    // `imp` is a Jam function coerced with `as u64`; it must take
-    // (target: u64, op: u64, ...) and use only C-ABI compatible types.
+    // Replace (override) a method previously defined, e.g. by a superclass. imp is a Jam function coerced with `as u64`; it must take (target: u64, op: u64, ...) and use only C-ABI compatible types.
     pub fn replaceMethod(self: Class, name: []u8, imp: u64) {
         class_replaceMethod(self.value, sel_registerName(name.ptr), imp, 0);
     }
 
-    // Add a new method. `types` is the ObjC type-encoding string for the
-    // signature, e.g. "v@:" for `- (void)m`, "i@:ii" for
-    // `- (int)m:(int)a :(int)b`. (zig-objc computes this at comptime;
-    // Jam cannot, so it is explicit.)
+    // Add a new method. `types` is the ObjC type-encoding string for the signature, e.g. "v@:" for `- (void)m`, "i@:ii" for
+    // `- (int)m:(int)a :(int)b`. (mitchel's zig-objc computes this at comptime, jam cannot, so it is explicit.)
     pub fn addMethod(self: Class, name: []u8, imp: u64, types: []u8) bool {
         return fromBool(class_addMethod(self.value, sel_registerName(name.ptr), imp, types.ptr));
     }
 
-    // Add an ivar of type `id`. Only valid between allocateClassPair and
-    // registerClassPair.
     pub fn addIvar(self: Class, name: []u8) bool {
         const idEncoding: []u8 = "@";
         return fromBool(class_addIvar(self.value, name.ptr, 8, 3, idEncoding.ptr));
     }
 };
 
-// Result of Class.copyPropertyList — a malloc'd array of objc_property_t.
 pub const PropertyList = struct {
     items: *const[] u64,
     len: u32,
@@ -349,8 +256,7 @@ pub const PropertyList = struct {
         return Property { value: self.items[i] };
     }
 
-    // `cfn drop` (not `fn drop`) is what registers with MVS auto-drop —
-    // a plain `fn drop` is just a method and never fires at scope exit.
+    // TODO: Improve it!!
     cfn drop(self: mut PropertyList) {
         if ((self.items as u64) != 0) {
             free(self.items as *mut[] u8);
@@ -374,7 +280,6 @@ pub fn getMetaClass(name: []u8) Option(Class) {
     return Option(Class).Some(Class { value: cls });
 }
 
-// Begin by calling this, then registerClassPair on the result when done.
 pub fn allocateClassPair(superclass: Class, name: []u8) Option(Class) {
     const cls: u64 = objc_allocateClassPair(superclass.value, name.ptr, 0);
     if (cls == 0) {
@@ -391,15 +296,9 @@ pub fn disposeClassPair(cls: Class) {
     objc_disposeClassPair(cls.value);
 }
 
-// ---------------------------------------------------------------------------
-// Object
-
 pub const Object = struct {
     value: u64,
 
-    // Convert a raw `id` into an Object. Tagged pointers (NSNumber,
-    // short NSStrings, ...) are plain u64s here, so unaligned tagged
-    // pointer values are handled for free.
     pub fn fromId(id: u64) Object {
         return Object { value: id };
     }
@@ -408,16 +307,9 @@ pub const Object = struct {
         return self.value == 0;
     }
 
-    // -- message sending (instance methods). One generic send; see
-    //    Class.msgSend above for the R / argument-type rules.
-    //
-    //        const d: f64 = obj.msgSend(f64, sel("doubleValue"));
-    //        obj.msgSend(void, sel("setAlphaValue:"), 0.5);
-
     pub cfn msgSend(self: Object, R: type, op: Sel, args: ...) R {
         var addr: u64 = objc_msgSend as u64;
         if (@isX86_64()) {
-            // See Class.msgSend — _stret for memory-class returns.
             if (@sizeOf(R) > 16) {
                 addr = objc_msgSend_stret as u64;
             }
@@ -425,7 +317,6 @@ pub const Object = struct {
         return @callC(R, addr, self.value, op.value, args...);
     }
 
-    // Invoke a selector on the superclass (objc_msgSendSuper).
     pub cfn msgSendSuper(self: Object, R: type, superclass: Class, op: Sel, args: ...) R {
         var addr: u64 = objc_msgSendSuper as u64;
         if (@isX86_64()) {
@@ -436,8 +327,6 @@ pub const Object = struct {
         var sup: ObjcSuper = ObjcSuper { receiver: self.value, superClass: superclass.value };
         return @callC(R, addr, (&sup) as u64, op.value, args...);
     }
-
-    // -- runtime queries
 
     pub fn getClass(self: Object) Option(Class) {
         const cls: u64 = object_getClass(self.value);
@@ -473,8 +362,6 @@ pub const Object = struct {
         object_setIvar(self.value, ivar, val.value);
     }
 
-    // -- reference counting
-
     pub fn retain(self: Object) Object {
         return Object { value: objc_retain(self.value) };
     }
@@ -482,9 +369,6 @@ pub const Object = struct {
     pub fn release(self: Object) {
         objc_release(self.value);
     }
-
-    // -- property helpers (ports of zig-objc Object.getProperty /
-    //    setProperty; strictly less performant than a direct msgSend).
 
     // Read a property by name. Uses the declared getter when the class
     // metadata names one ("G" attribute), the property name otherwise.
@@ -552,17 +436,6 @@ fn propertyAccessorSel(obj: u64, name: []u8, attr: []u8) u64 {
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// AutoreleasePool
-//
-// zig-objc pairs init() with an explicit deinit(). Jam has linear drops,
-// so the pool pops itself at scope exit:
-//
-//     {
-//         var pool: AutoreleasePool = AutoreleasePool.init();
-//         ... autoreleased work ...
-//     }   // popped here
-
 pub const AutoreleasePool = struct {
     ptr: u64,
 
@@ -570,9 +443,6 @@ pub const AutoreleasePool = struct {
         return AutoreleasePool { ptr: objc_autoreleasePoolPush() };
     }
 
-    // `cfn drop` (not `fn drop`) registers with MVS auto-drop, so the
-    // pool actually pops at scope exit. A plain `fn drop` would never
-    // fire — the pool would leak and never balance its push.
     cfn drop(self: mut AutoreleasePool) {
         objc_autoreleasePoolPop(self.ptr);
     }
