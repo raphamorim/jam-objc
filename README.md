@@ -2,7 +2,7 @@
 
 Objective-C runtime bindings for the [Jam](https://github.com/raphamorim/jama) programming language.
 
-Credits note: I wrote/ported this mostly from [mitchellh/zig-objc](https://github.com/mitchellh/zig-objc), I kept Mitchell license in the repo just in case, even that I rewrote myself.
+Credits note: I wrote/ported this mostly from [mitchellh/zig-objc](https://github.com/mitchellh/zig-objc), I kept Mitchell license in the repo just in case.
 
 ```jam
 const objc = import("objc");
@@ -53,8 +53,6 @@ with per-callsite clones; `MSGSEND.md` has the whole story. `id`,
 `Class`, `SEL` and object pointers all travel as `u64`, which also means
 tagged pointers just work.
 
-## API map (zig-objc → jam-objc)
-
 | zig-objc                              | jam-objc                                        |
 |---------------------------------------|-------------------------------------------------|
 | `objc.getClass(name) ?Class`          | `objc.getClass(name) Option(Class)`             |
@@ -83,15 +81,11 @@ tagged pointers just work.
 | `objc.boolResult/boolParam`           | `objc.fromBool/toBool`                          |
 | `objc.free`                           | `objc.freeCopied`                               |
 
-There are no per-signature wrappers to maintain. Argument types are
-taken as-is, so spell scalars out (`x.value`, `p as u64`, `0 as i64`).
-If a call doesn't fit the wrappers, use `@callC` directly with
-`objc.msgSendAddr()` / `objc.msgSendSuperAddr()`.
+Note: there are no per-signature wrappers to maintain. Argument types are taken as-is, so spell scalars out (`x.value`, `p as u64`, `0 as i64`). If a call doesn't fit the wrappers, use `@callC` directly with `objc.msgSendAddr()` / `objc.msgSendSuperAddr()`.
 
 ## Frameworks
 
-`jam` has no `-framework` linker flag, so Foundation/AppKit classes are
-registered at runtime instead:
+`jam` has no `-framework` linker flag yet! So Foundation/AppKit classes are registered at runtime instead:
 
 ```jam
 objc.loadFoundation();
@@ -99,10 +93,7 @@ objc.loadAppKit();
 objc.loadFramework("/System/Library/Frameworks/Metal.framework/Metal");
 ```
 
-Only `-lobjc` is needed at link time. One side effect (also visible in
-plain C): protocols nothing references aren't registered, so
-`objc_getProtocol("NSFileManagerDelegate")` is NULL with Foundation
-dlopen'd while `NSURLSessionDelegate`, `NSCoding` etc. are present.
+Only `-lobjc` is needed at link time. One side effect (also visible in plain C): protocols nothing references aren't registered, so `objc_getProtocol("NSFileManagerDelegate")` is NULL with Foundation dlopen'd while `NSURLSessionDelegate`, `NSCoding` etc. are present.
 
 ## Blocks
 
