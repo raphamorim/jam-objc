@@ -2,7 +2,7 @@ JAM ?= jam
 
 .PHONY: test run-example-foundation run-example-subclass run-example-blocks \
         run-example-window run-example-draw run-example-button \
-        run-example-files clean
+        run-example-files run-example-json run-example-notify clean
 
 test:
 	$(JAM) test -lobjc tests.jam
@@ -34,6 +34,14 @@ run-example-button:
 # List the current directory through NSFileManager.
 run-example-files:
 	cd examples && $(JAM) run -lobjc files.jam
+
+# Parse JSON with NSJSONSerialization.
+run-example-json:
+	cd examples && $(JAM) run -lobjc json.jam
+
+# NSNotificationCenter posting into a runtime-built observer.
+run-example-notify:
+	cd examples && $(JAM) run -lobjc notify.jam
 
 clean:
 	rm -f output output.o examples/output examples/output.o

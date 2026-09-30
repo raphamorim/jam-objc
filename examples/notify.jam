@@ -1,6 +1,6 @@
 // jam run -lobjc notify.jam
 const objc = import("../objc");
-const { Object, Class, sel } = import("../objc");
+const { Object, Class, sel, AutoreleasePool } = import("../objc");
 const { Option } = import("std").option;
 const { println } = import("std/fmt");
 
@@ -55,6 +55,8 @@ fn main() {
         println("failed to load Foundation");
         return;
     }
+
+    var pool: AutoreleasePool = AutoreleasePool.init();
 
     const obsCls: Class = defineObserverClass();
     if (obsCls.value == 0) {
