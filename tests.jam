@@ -370,7 +370,10 @@ tfn iterateNSArray() {
     assert(result, 123456789);
 }
 
-const AddCaps = struct { x: i32, y: i32 };
+const AddCaps = struct {
+    x: i32,
+    y: i32
+};
 const AddBlock = Block(AddCaps);
 
 fn addBlockImpl(ctx: u64) i32 {
@@ -387,6 +390,7 @@ tfn blockInvoke() {
     assert(block.invoke0i32(copied), 5);
     block.release(copied);
 
+    // TODO: Maaaaaaaybe drop on jam system?
     b.deinit();
 }
 
