@@ -1,0 +1,109 @@
+// jam-objc example: pass a block to an Objective-C API.
+//
+// Sorts an NSArray with -sortedArrayUsingComparator:, the comparator
+// being a jam-built block (block.jam). The block literal lives on the
+// stack, its captures are plain data (a `descending` flag), and
+// Foundation calls back into the jam fn through the block's invoke
+// pointer — same shape for both sort directions, the capture decides.
+//
+// Build & run (from this folder):
+//     jam run -lobjc blocks.jam
+
+const objc = import("../objc");
+const { Object, Class, sel } = import("../objc");
+const { Block } = import("../block");
+const { Iterator } = import("../iterator");
+const { Option } = import("std").option;
+const { print, println } = import("std/fmt");
+
+// NSComparisonResult
+const NSOrderedAscending: i64 = -1;
+const NSOrderedSame: i64 = 0;
+const NSOrderedDescending: i64 = 1;
+
+const CmpCaps = struct { descending: i32 };
+const CmpBlock = Block(CmpCaps);
+
+// NSComparator shape: NSComparisonResult (^)(id a, id b). Arg 0 is the
+// block itself — the captures ride along in it; a and b are elements.
+fn compareNumbers(ctx: u64, a: u64, b: u64) i64 {
+    var caps: *const CmpCaps = CmpBlock.capturesFrom(ctx);
+    const objA: Object = Object.fromId(a);
+    const objB: Object = Object.fromId(b);
+    const x: u64 = objA.msgSend(u64, sel("unsignedLongValue"));
+    const y: u64 = objB.msgSend(u64, sel("unsignedLongValue"));
+    var result: i64 = NSOrderedSame;
+    if (x < y) {
+        result = NSOrderedAscending;
+    }
+    if (x > y) {
+        result = NSOrderedDescending;
+    }
+    if (caps.*.descending != 0) {
+        result = 0 - result;
+    }
+    return result;
+}
+
+fn mustClass(name: []u8) Class {
+    match (objc.getClass(name)) {
+        Option(Class).Some(c) { return c; }
+        Option(Class).None    { return Class { value: 0 }; }
+    }
+    return Class { value: 0 };
+}
+
+fn printArray(label: []u8, array: Object) {
+    print("{label}: ");
+    var it: Iterator = Iterator.init(array);
+    loop {
+        match (it.next()) {
+            Option(Object).Some(elem) {
+                const v: u64 = elem.msgSend(u64, sel("unsignedLongValue"));
+                print("{v} ");
+            }
+            Option(Object).None { break; }
+        }
+    }
+    print("\n");
+}
+
+fn main() {
+    if (!objc.loadFoundation()) {
+        println("failed to load Foundation");
+        return;
+    }
+
+    const NSMutableArray: Class = mustClass("NSMutableArray");
+    const NSNumber: Class = mustClass("NSNumber");
+
+    // A scrambled array of NSNumbers to sort.
+    const array: Object = NSMutableArray.msgSend(Object,
+        sel("arrayWithCapacity:"), 8 as u64);
+    for i in 0:8 {
+        const v: u64 = ((i as u64) * 37 + 11) & 63;
+        const num: Object = NSNumber.msgSend(Object,
+            sel("numberWithUnsignedLong:"), v);
+        array.msgSend(void, sel("addObject:"), num.value);
+    }
+
+    // One comparator fn, two blocks — the capture picks the direction.
+    // `(&blk) as u64` is how a block travels as a method argument.
+    var asc: CmpBlock = CmpBlock.init(CmpCaps { descending: 0 },
+                                      compareNumbers as u64);
+    var desc: CmpBlock = CmpBlock.init(CmpCaps { descending: 1 },
+                                       compareNumbers as u64);
+    const sortedAsc: Object = array.msgSend(Object,
+        sel("sortedArrayUsingComparator:"), (&asc) as u64);
+    const sortedDesc: Object = array.msgSend(Object,
+        sel("sortedArrayUsingComparator:"), (&desc) as u64);
+
+    printArray("original  ", array);
+    printArray("ascending ", sortedAsc);
+    printArray("descending", sortedDesc);
+
+    // The sorts are done and Foundation holds no copies — safe to free
+    // the descriptors.
+    asc.deinit();
+    desc.deinit();
+}

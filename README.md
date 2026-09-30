@@ -39,17 +39,32 @@ jam -C target=x86_64-apple-darwin test -lobjc tests.jam
 
 ## Examples
 
-[`examples/window.jam`](examples/window.jam) opens a native macOS window
-straight through the runtime (`NSApplication` + `NSWindow`):
+All run from `examples/` with `jam run -lobjc <file>.jam` (or the
+`make run-example-*` targets):
 
-```sh
-cd examples && jam run -lobjc window.jam   # close the window / Cmd-Q to quit
-```
-
-The window init takes an `NSRect` (four f64s) by value. `msgSend` handles
-that like anything else: the argument type ends up in the synthesized
-signature and jam lowers the aggregate the way the arm64 ABI wants it
-(v0-v3).
+- [`foundation.jam`](examples/foundation.jam) — console tour of
+  Foundation: NSString/NSNumber/NSDate/NSArray through `msgSend`, fast
+  enumeration via `Iterator`, an `AutoreleasePool` that pops on drop.
+- [`subclass.jam`](examples/subclass.jam) — defines a `JamCounter`
+  class at runtime (`allocateClassPair` + `addIvar` + `addMethod`),
+  with per-instance state in an ivar and jam fns as the IMPs.
+- [`blocks.jam`](examples/blocks.jam) — sorts an NSArray with
+  `-sortedArrayUsingComparator:`, the comparator being a jam-built
+  block whose captured flag picks the sort direction.
+- [`window.jam`](examples/window.jam) — opens a native macOS window
+  straight through the runtime (`NSApplication` + `NSWindow`, working
+  Cmd-Q menu, app delegate). The window init takes an `NSRect` (four
+  f64s) by value; the argument type ends up in the synthesized
+  signature and jam lowers the aggregate the way the arm64 ABI wants
+  it (v0–v3).
+- [`draw.jam`](examples/draw.jam) — custom drawing: subclasses `NSView`
+  at runtime and overrides `-drawRect:` with a jam fn that paints three
+  translucent circles through `NSColor`/`NSBezierPath`. AppKit calls
+  back into jam on every redraw.
+- [`button.jam`](examples/button.jam) — an interactive click counter:
+  an `NSButton` wired via target/action to a runtime-built controller
+  whose `-clicked:` IMP is a jam fn that bumps an ivar and rewrites
+  the label.
 
 ## How it works
 

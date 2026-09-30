@@ -1,0 +1,116 @@
+// jam-objc example: a quick tour of Foundation from the console.
+//
+// No GUI — NSString, NSNumber, NSDate and NSArray driven straight
+// through objc_msgSend, plus fast enumeration and an autorelease pool.
+// A good first stop to see the msgSend shapes: ids as u64, f64 both
+// directions, selector and object arguments.
+//
+// Build & run (from this folder):
+//     jam run -lobjc foundation.jam
+//
+// Foundation isn't linked (jam has no -framework flag), so it's loaded
+// at runtime with objc.loadFoundation(). Only -lobjc links.
+
+const objc = import("../objc");
+const { Object, Class, sel, AutoreleasePool } = import("../objc");
+const { Iterator } = import("../iterator");
+const { Option } = import("std").option;
+const { println } = import("std/fmt");
+
+fn mustClass(name: []u8) Class {
+    match (objc.getClass(name)) {
+        Option(Class).Some(c) { return c; }
+        Option(Class).None    { return Class { value: 0 }; }
+    }
+    return Class { value: 0 };
+}
+
+// [NSString stringWithUTF8String:] — an autoreleased NSString.
+fn nsString(s: []u8) Object {
+    const cls: Class = mustClass("NSString");
+    return cls.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
+}
+
+// Borrow an NSString's bytes back as a jam slice.
+fn utf8(obj: Object) []u8 {
+    const p: u64 = obj.msgSend(u64, sel("UTF8String"));
+    return objc.cstr(p as *const[] u8);
+}
+
+fn strings() {
+    const s: Object = nsString("hello from jam-objc");
+    const len: u64 = s.msgSend(u64, sel("length"));
+    const upper: []u8 = utf8(s.msgSend(Object, sel("uppercaseString")));
+    println("[NSString]  {len} chars, uppercased: {upper}");
+}
+
+fn numbers() {
+    const NSNumber: Class = mustClass("NSNumber");
+
+    // f64 rides the msgSend boundary in both directions.
+    const pi: Object = NSNumber.msgSend(Object, sel("numberWithDouble:"), 3.14159);
+    const d: f64 = pi.msgSend(f64, sel("doubleValue"));
+
+    // Small NSNumbers are tagged pointers — the value is packed into
+    // the id itself, no heap object behind it. Object carries ids as
+    // plain u64s, so they message like anything else.
+    const five: Object = NSNumber.msgSend(Object, sel("numberWithInt:"), 5 as u64);
+    const back: u64 = five.msgSend(u64, sel("intValue"));
+    const cls: []u8 = five.getClassName();
+
+    println("[NSNumber]  doubleValue: {d}; tagged 5 round-trips as {back} (class {cls})");
+}
+
+fn dates() {
+    const NSDate: Class = mustClass("NSDate");
+    const now: Object = NSDate.msgSend(Object, sel("date"));
+    const secs: f64 = now.msgSend(f64, sel("timeIntervalSince1970"));
+    println("[NSDate]    seconds since 1970: {secs}");
+}
+
+fn arrays() {
+    const NSMutableArray: Class = mustClass("NSMutableArray");
+    const NSNumber: Class = mustClass("NSNumber");
+
+    const array: Object = NSMutableArray.msgSend(Object, sel("arrayWithCapacity:"), 8 as u64);
+    for i in 1:9 {
+        const sq: u64 = (i as u64) * (i as u64);
+        const num: Object = NSNumber.msgSend(Object, sel("numberWithUnsignedLong:"), sq);
+        array.msgSend(void, sel("addObject:"), num.value);
+    }
+
+    // NSFastEnumeration through iterator.jam — the same protocol
+    // clang's `for (id x in array)` compiles down to.
+    var sum: u64 = 0;
+    var it: Iterator = Iterator.init(array);
+    loop {
+        match (it.next()) {
+            Option(Object).Some(elem) {
+                sum = sum + elem.msgSend(u64, sel("unsignedLongValue"));
+            }
+            Option(Object).None { break; }
+        }
+    }
+
+    const sep: Object = nsString(" + ");
+    const joined: []u8 = utf8(array.msgSend(Object,
+        sel("componentsJoinedByString:"), sep.value));
+    println("[NSArray]   {joined} = {sum}");
+}
+
+fn main() {
+    if (!objc.loadFoundation()) {
+        println("failed to load Foundation");
+        return;
+    }
+
+    // Everything below returns autoreleased objects; the pool pops
+    // (reclaiming them) when this scope ends — jam's linear drop calls
+    // objc_autoreleasePoolPop for us.
+    var pool: AutoreleasePool = AutoreleasePool.init();
+
+    strings();
+    numbers();
+    dates();
+    arrays();
+}

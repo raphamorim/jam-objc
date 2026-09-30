@@ -1,0 +1,195 @@
+// jam-objc example: an interactive click counter (target/action).
+//
+// A native window with an NSButton wired to a controller class built at
+// runtime: every click lands in a jam fn (the -clicked: IMP), which
+// bumps a count kept in an ivar and rewrites the label above the
+// button. Cocoa's whole target/action machinery, no Objective-C
+// compiler involved.
+//
+// Build & run (from this folder):
+//     jam run -lobjc button.jam
+
+const objc = import("../objc");
+const { Object, Class, sel } = import("../objc");
+const { Option } = import("std").option;
+const { println } = import("std/fmt");
+
+const NSWindowStyleMaskTitled: u64 = 1;
+const NSWindowStyleMaskClosable: u64 = 2;
+const NSWindowStyleMaskMiniaturizable: u64 = 4;
+const NSBackingStoreBuffered: u64 = 2;
+const NSApplicationActivationPolicyRegular: u64 = 0;
+const NSTextAlignmentCenter: u64 = 1;
+
+const NSRect = struct { x: f64, y: f64, w: f64, h: f64 };
+
+fn mustClass(name: []u8) Class {
+    match (objc.getClass(name)) {
+        Some(c) { return c; }
+        None    { return Class { value: 0 }; }
+    }
+    return Class { value: 0 };
+}
+
+fn allocInit(name: []u8) Object {
+    const c: Class = mustClass(name);
+    const obj: Object = c.msgSend(Object, sel("alloc"));
+    return obj.msgSend(Object, sel("init"));
+}
+
+fn nsString(s: []u8) Object {
+    const nsstr: Class = mustClass("NSString");
+    return nsstr.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
+}
+
+fn nsNumber(n: u64) Object {
+    const cls: Class = mustClass("NSNumber");
+    return cls.msgSend(Object, sel("numberWithUnsignedLong:"), n);
+}
+
+// --- the controller ------------------------------------------------------
+// Runtime-built NSObject subclass holding the count and the label in
+// ivars. The action method is a jam fn AppKit calls on every click.
+
+// - (void)clicked:(id)sender — encoding "v@:@". stringWithFormat: is
+// variadic (wrong ABI for msgSend), so the label text is composed with
+// -stringByAppendingString: instead: "clicks: " + [count stringValue].
+fn controllerClicked(target: u64, op: u64, sender: u64) {
+    const self: Object = Object.fromId(target);
+
+    const boxed: Object = self.getInstanceVariable("count");
+    const n: u64 = boxed.msgSend(u64, sel("unsignedLongValue")) + 1;
+    const counted: Object = nsNumber(n);
+    self.setInstanceVariable("count", counted);
+
+    const numStr: Object = counted.msgSend(Object, sel("stringValue"));
+    const prefix: Object = nsString("clicks: ");
+    const text: Object = prefix.msgSend(Object,
+        sel("stringByAppendingString:"), numStr.value);
+
+    const label: Object = self.getInstanceVariable("label");
+    label.msgSend(void, sel("setStringValue:"), text.value);
+    println("clicked — count is {n}");
+}
+
+fn defineControllerClass() Class {
+    const nsobject: Class = mustClass("NSObject");
+    var cls: Class = Class { value: 0 };
+    match (objc.allocateClassPair(nsobject, "JamClickController")) {
+        Option(Class).Some(c) { cls = c; }
+        Option(Class).None    { return cls; }
+    }
+    cls.addIvar("count");
+    cls.addIvar("label");
+    cls.addMethod("clicked:", controllerClicked as u64, "v@:@");
+    objc.registerClassPair(cls);
+    return cls;
+}
+
+// --- boilerplate shared with window.jam -----------------------------------
+
+fn installMenu(app: Object) {
+    const menubar: Object = allocInit("NSMenu");
+    const appItem: Object = allocInit("NSMenuItem");
+    menubar.msgSend(void, sel("addItem:"), appItem.value);
+    app.msgSend(void, sel("setMainMenu:"), menubar.value);
+
+    const appMenu: Object = allocInit("NSMenu");
+    const itemCls: Class = mustClass("NSMenuItem");
+    const quitItem: Object = itemCls.msgSend(Object, sel("alloc"));
+    quitItem.msgSend(u64,
+        sel("initWithTitle:action:keyEquivalent:"),
+        nsString("Quit").value, sel("terminate:").value,
+        nsString("q").value);
+    appMenu.msgSend(void, sel("addItem:"), quitItem.value);
+    appItem.msgSend(void, sel("setSubmenu:"), appMenu.value);
+}
+
+fn appShouldTerminate(selfId: u64, op: u64, sender: u64) u8 {
+    return 1;  // YES
+}
+
+fn installDelegate(app: Object) {
+    const nsobject: Class = mustClass("NSObject");
+    var delCls: Class = Class { value: 0 };
+    match (objc.allocateClassPair(nsobject, "JamButtonDelegate")) {
+        Option(Class).Some(c) { delCls = c; }
+        Option(Class).None    { return; }
+    }
+    delCls.addMethod("applicationShouldTerminateAfterLastWindowClosed:",
+                     appShouldTerminate as u64, "B@:@");
+    objc.registerClassPair(delCls);
+    const delegate: Object = delCls.msgSend(Object, sel("alloc"));
+    delegate.msgSend(u64, sel("init"));
+    app.msgSend(void, sel("setDelegate:"), delegate.value);
+}
+
+fn makeLabel(text: []u8, r: NSRect) Object {
+    const cls: Class = mustClass("NSTextField");
+    const alloc: Object = cls.msgSend(Object, sel("alloc"));
+    const label: Object = alloc.msgSend(Object, sel("initWithFrame:"), r);
+    label.msgSend(void, sel("setStringValue:"), nsString(text).value);
+    label.msgSend(void, sel("setEditable:"), 0 as u64);
+    label.msgSend(void, sel("setSelectable:"), 0 as u64);
+    label.msgSend(void, sel("setBezeled:"), 0 as u64);
+    label.msgSend(void, sel("setDrawsBackground:"), 0 as u64);
+    label.msgSend(void, sel("setAlignment:"), NSTextAlignmentCenter);
+    return label;
+}
+
+fn main() {
+    if (!objc.loadAppKit()) {
+        println("failed to load AppKit");
+        return;
+    }
+
+    const appCls: Class = mustClass("NSApplication");
+    const app: Object = appCls.msgSend(Object, sel("sharedApplication"));
+    app.msgSend(void, sel("setActivationPolicy:"),
+                NSApplicationActivationPolicyRegular);
+    installMenu(app);
+    installDelegate(app);
+
+    const style: u64 = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskMiniaturizable;
+    var frame: NSRect = NSRect { x: 0.0, y: 0.0, w: 360.0, h: 200.0 };
+    const winCls: Class = mustClass("NSWindow");
+    const winAlloc: Object = winCls.msgSend(Object, sel("alloc"));
+    const win: Object = winAlloc.msgSend(Object,
+        sel("initWithContentRect:styleMask:backing:defer:"),
+        frame, style, NSBackingStoreBuffered, 0 as i64);
+    win.msgSend(void, sel("setTitle:"), nsString("jam-objc button").value);
+    const contentView: Object = win.msgSend(Object, sel("contentView"));
+
+    // Controller instance: count starts at 0, label ivar wired below.
+    const ctrlCls: Class = defineControllerClass();
+    if (ctrlCls.value == 0) {
+        println("failed to allocate JamClickController");
+        return;
+    }
+    const ctrlAlloc: Object = ctrlCls.msgSend(Object, sel("alloc"));
+    const controller: Object = ctrlAlloc.msgSend(Object, sel("init"));
+    controller.setInstanceVariable("count", nsNumber(0));
+
+    var labelRect: NSRect = NSRect { x: 30.0, y: 110.0, w: 300.0, h: 30.0 };
+    const label: Object = makeLabel("clicks: 0", labelRect);
+    contentView.msgSend(void, sel("addSubview:"), label.value);
+    controller.setInstanceVariable("label", label);
+
+    // +buttonWithTitle:target:action: wires the click to our jam IMP.
+    const btnCls: Class = mustClass("NSButton");
+    const button: Object = btnCls.msgSend(Object,
+        sel("buttonWithTitle:target:action:"),
+        nsString("Click me").value, controller.value,
+        sel("clicked:").value);
+    var btnRect: NSRect = NSRect { x: 120.0, y: 50.0, w: 120.0, h: 32.0 };
+    button.msgSend(void, sel("setFrame:"), btnRect);
+    contentView.msgSend(void, sel("addSubview:"), button.value);
+
+    win.msgSend(void, sel("center"));
+    win.msgSend(void, sel("makeKeyAndOrderFront:"), 0 as u64);
+    app.msgSend(void, sel("activateIgnoringOtherApps:"), 1 as u64);
+
+    println("window open — click the button; Cmd-Q to quit");
+    app.msgSend(void, sel("run"));
+}
