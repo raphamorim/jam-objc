@@ -1,10 +1,5 @@
-// jam-objc test suite — ports of the inline `test` blocks in
-// references/zig-objc/src/*.zig.
-//
-// Run with:  jam test -lobjc tests.jam   (or `make test`)
-//
-// Foundation classes (NSString, NSNumber, NSArray, ...) are loaded via
-// dlopen because `jam` has no `-framework` linker flag.
+// jam test -lobjc tests.jam
+// note: foundation classes (NSString, NSNumber, NSArray, etc) are loaded via dlopen because jam has no -framework linker flag yet
 
 const { assert } = import("test");
 const { Option } = import("std").option;
@@ -14,8 +9,6 @@ const { Object, Class, Sel, Property, Protocol, AutoreleasePool, sel } = import(
 const { Iterator } = import("iterator");
 const block = import("block");
 const { Block } = import("block");
-
-// --- helpers ---------------------------------------------------------------
 
 fn mustClass(name: []u8) Class {
     match (objc.getClass(name)) {
