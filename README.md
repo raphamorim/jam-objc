@@ -1,6 +1,6 @@
 # jam-objc
 
-Objective-C runtime bindings for the [Jam](https://github.com/raphamorim/jama) programming language.
+Objective-C runtime bindings for the [Jam](https://github.com/raphamorim/jama) programming language. This project is a work in progress, as the language evolves it will be updated.
 
 Credits note: I wrote/ported this mostly from [mitchellh/zig-objc](https://github.com/mitchellh/zig-objc), I kept Mitchell license in the repo just in case.
 
@@ -26,32 +26,17 @@ fn main() {
 }
 ```
 
-Run the test suite: `jam test -lobjc tests.jam`
-
-Works as x86_64 too, cross-compile and macOS runs the binaries under rosetta 2: `jam -C target=x86_64-apple-darwin test -lobjc tests.jam`
-
-## How it works
-
-zig-objc casts `objc_msgSend` to a function pointer with the target
-method's signature, so arguments and returns travel in the right
-registers. Jam's `@callC` intrinsic does the same cast: it builds the
-function type from the argument types plus an explicit return type.
-`msgSend` is a variadic `cfn` that forwards into it:
+Run the test suite:
 
 ```jam
-pub extern fn objc_msgSend();             // declared only for its address
-
-pub cfn msgSend(self: Object, R: type, op: Sel, args: ...) R {
-    return @callC(R, objc_msgSend as u64, self.value, op.value, args...);
-}
+jam test -lobjc tests.jam
 ```
 
-Each call site gets a clone specialized to its argument shape, so any
-arity and any mix of ints, floats and by-value structs comes out with
-the right signature. What zig-objc does with comptime tuples, jam does
-with per-callsite clones; `MSGSEND.md` has the whole story. `id`,
-`Class`, `SEL` and object pointers all travel as `u64`, which also means
-tagged pointers just work.
+Works as x86_64 too, cross-compile and macOS runs the binaries under rosetta 2:
+
+```
+jam -C target=x86_64-apple-darwin test -lobjc tests.jam
+```
 
 | zig-objc                              | jam-objc                                        |
 |---------------------------------------|-------------------------------------------------|
@@ -77,7 +62,7 @@ tagged pointers just work.
 | `AutoreleasePool.init/deinit`         | `AutoreleasePool.init()`; pops itself on drop   |
 | `objc.Iterator` (NSFastEnumeration)   | `import("iterator").Iterator`                   |
 | `objc.Block(Captures, Args, Return)`  | `import("block").Block(Captures)`               |
-| `objc.comptimeEncode(Fn)`             | — write the encoding string yourself            |
+| `objc.comptimeEncode(Fn)`             | write the encoding string yourself              |
 | `objc.boolResult/boolParam`           | `objc.fromBool/toBool`                          |
 | `objc.free`                           | `objc.freeCopied`                               |
 
