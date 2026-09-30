@@ -1,0 +1,77 @@
+// jam run -lobjc json.jam
+const objc = import("../objc");
+const { Object, Class, sel, AutoreleasePool } = import("../objc");
+const { Iterator } = import("../iterator");
+const { Option } = import("std").option;
+const { print, println } = import("std/fmt");
+
+fn mustClass(name: []u8) Class {
+    match (objc.getClass(name)) {
+        Some(c) {
+            return c;
+        }
+        None {
+            return Class { value: 0 };
+        }
+    }
+    return Class { value: 0 };
+}
+
+fn nsString(s: []u8) Object {
+    const cls: Class = mustClass("NSString");
+    return cls.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
+}
+
+fn utf8(obj: Object) []u8 {
+    const p: u64 = obj.msgSend(u64, sel("UTF8String"));
+    return objc.cstr(p as *const[] u8);
+}
+
+fn main() {
+    if (!objc.loadFoundation()) {
+        println("failed to load Foundation");
+        return;
+    }
+
+    var pool: AutoreleasePool = AutoreleasePool.init();
+
+    const jsonText: []u8 = "{\"name\": \"jam-objc\", \"version\": 0.1, \"tags\": [\"objc\", \"runtime\", \"ffi\"]}";
+    const dataCls: Class = mustClass("NSData");
+    const data: Object = dataCls.msgSend(Object,
+        sel("dataWithBytes:length:"), jsonText.ptr as u64, jsonText.len);
+
+    const jsonCls: Class = mustClass("NSJSONSerialization");
+    const root: Object = jsonCls.msgSend(Object,
+        sel("JSONObjectWithData:options:error:"), data.value, 0 as u64, 0 as u64);
+    if (root.isNil()) {
+        println("failed to parse JSON");
+        return;
+    }
+
+    const nameObj: Object = root.msgSend(Object,
+        sel("objectForKey:"), nsString("name").value);
+    const name: []u8 = utf8(nameObj);
+
+    const versionObj: Object = root.msgSend(Object,
+        sel("objectForKey:"), nsString("version").value);
+    const version: f64 = versionObj.msgSend(f64, sel("doubleValue"));
+
+    println("name: {name}");
+    println("version: {version}");
+
+    const tags: Object = root.msgSend(Object,
+        sel("objectForKey:"), nsString("tags").value);
+    const tagCount: u64 = tags.msgSend(u64, sel("count"));
+    print("tags ({tagCount}):");
+    var it: Iterator = Iterator.init(tags);
+    loop {
+        match (it.next()) {
+            Some(tag) {
+                const tagTxt: []u8 = utf8(tag);
+                print(" {tagTxt}");
+            }
+            None { break; }
+        }
+    }
+    print("\n");
+}
