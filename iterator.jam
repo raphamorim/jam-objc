@@ -4,8 +4,8 @@ const { Object, Sel, sel, msgSendAddr, objc_enumerationMutation } = import("objc
 
 pub const FastEnumerationState = struct {
     state: u64,
-    itemsPtr: u64,        // id* — array the runtime points us at
-    mutationsPtr: u64,    // unsigned long*
+    itemsPtr: u64,
+    mutationsPtr: u64,
     extra: [5]u64,
 };
 
@@ -13,7 +13,6 @@ pub const Iterator = struct {
     object: u64,
     op: u64,
     state: FastEnumerationState,
-    // Clang compiles `for…in` loops with a size 16 buffer.
     buffer: [16]u64,
     initialMutations: u64,
     started: bool,
@@ -35,7 +34,6 @@ pub const Iterator = struct {
 
     pub fn next(self: mut Iterator) Option(Object) {
         if (self.index >= self.count) {
-            // Ask the collection for the next batch.
             self.count = @callC(u64, msgSendAddr(),
                 self.object,
                 self.op,
@@ -47,8 +45,7 @@ pub const Iterator = struct {
             if (self.state.mutationsPtr != 0) {
                 var mp: *const u64 = self.state.mutationsPtr as *const u64;
                 if (self.started) {
-                    // Collection mutated mid-iteration: hand off to the
-                    // runtime's mutation handler (raises by default).
+                    // collection mutated mid-iteration: hand off to the runtime's mutation handler (raises by default)
                     if (mp.* != self.initialMutations) {
                         objc_enumerationMutation(self.object);
                     }
