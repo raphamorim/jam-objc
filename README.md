@@ -1,8 +1,8 @@
 # jam-objc
 
-Objective-C runtime bindings for the [Jam](../jam) programming language.
-A port of [mitchellh/zig-objc](https://github.com/mitchellh/zig-objc)
-(vendored in `references/zig-objc`).
+Objective-C runtime bindings for the [Jam](https://github.com/raphamorim/jama) programming language.
+
+Credits note: I wrote this mostly from [mitchellh/zig-objc](https://github.com/mitchellh/zig-objc), I kept Mitchell license in the repo just in case, even that I rewrote myself.
 
 ```jam
 const objc = import("objc");
