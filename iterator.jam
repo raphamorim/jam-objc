@@ -1,21 +1,7 @@
-// jam-objc — fast-enumeration iterator.
-//
-// Port of references/zig-objc/src/iterator.zig. Iterates any object that
-// conforms to the `NSFastEnumeration` protocol (NSArray, NSDictionary,
-// NSSet, ...):
-//
-//     var it: Iterator = Iterator.init(array);
-//     loop {
-//         match (it.next()) {
-//             Option(Object).Some(elem) { ... }
-//             Option(Object).None       { break; }
-//         }
-//     }
-
+// based on zig-objc/src/iterator.zig
 const { Option } = import("std").option;
 const { Object, Sel, sel, msgSendAddr, objc_enumerationMutation } = import("objc");
 
-// From <Foundation/NSEnumerator.h>: NSFastEnumerationState.
 pub const FastEnumerationState = struct {
     state: u64,
     itemsPtr: u64,        // id* — array the runtime points us at

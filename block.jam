@@ -1,66 +1,44 @@
-// jam-objc — Objective-C blocks.
-//
-// Port of references/zig-objc/src/block.zig, simplified for Jam:
-//
-//   * Captures must be plain data (integers, floats, pointers-as-u64).
-//     zig-objc installs copy/dispose helpers that retain captured
-//     `objc.c.id` values when a block is copied; Jam can't synthesize
-//     those per-capture at compile time, so captured objects are NOT
-//     auto-retained. Retain them yourself before capture and release
-//     after the block is done.
-//   * No embedded signature string (zig-objc encodes one at comptime).
-//     Most block-taking APIs don't require it.
-//
-// The block descriptor is malloc'd per `init` and freed by `deinit`.
-// Only call `deinit` after every runtime copy of the block has been
-// released — heap copies share the descriptor.
-//
-// Usage:
+// based on zig-objc/src/block.zig, but simplified. for example, no embedded signature string (zig-objc encodes one at comptime)
+// block descriptor is malloc'd per init and freed by deinit. only call deinit after every runtime copy of the block has been released, heap copies share the descriptor
 //
 //     const Caps = struct { x: i32, y: i32 };
-//     const AddBlock = Block(Caps);
+//     const BlockCaps = Block(Caps);
 //
 //     fn addImpl(ctx: u64) i32 {
-//         var caps: *const Caps = AddBlock.capturesFrom(ctx);
+//         var caps: *const Caps = BlockCaps.capturesFrom(ctx);
 //         return caps.*.x + caps.*.y;
 //     }
 //
-//     var b: AddBlock = AddBlock.init(Caps { x: 2, y: 3 }, addImpl as u64);
+//     var b = BlockCaps.init(Caps { x: 2, y: 3 }, addImpl as u64);
 //     const r: i32 = invoke0i32((&b) as u64);
 //     b.deinit();
-//
-// Passing the block to an ObjC method: pass `(&b) as u64` as the
-// argument — the runtime copies it to the heap if it escapes.
 
+// TODO: should deinit be on jam cfn?
 const { dlsym, malloc, free } = import("objc");
 
 pub extern fn _Block_copy(b: u64) u64;
 pub extern fn _Block_release(b: u64);
 
-// struct Block_descriptor_1 (no copy/dispose, no signature).
 pub const BlockDescriptor = struct {
     reserved: u64,
     size: u64,
 };
 
-// Block literal header layout (ABI-fixed, see clang BlockLanguageSpec):
-//   isa(8) flags(4) reserved(4) invoke(8) descriptor(8) captures...
+// block literal header layout (ABI-fixed, see clang BlockLanguageSpec for more info)
+//>  isa(8) flags(4) reserved(4) invoke(8) descriptor(8) captures...
 pub const HEADER_SIZE: u64 = 32;
 
 fn stackBlockIsa() u64 {
-    // No `extern var` in Jam, so the _NSConcreteStackBlock class object
-    // is fetched via dlsym(RTLD_DEFAULT, ...).
+    // TODO: no `extern var` in Jam, so the _NSConcreteStackBlock class object is fetched via dlsym(RTLD_DEFAULT, ...).
     const name: []u8 = "_NSConcreteStackBlock";
     return dlsym(0xFFFFFFFFFFFFFFFE, name.ptr);
 }
 
-// Address of the captures region of a block (header is ABI-fixed at 32
-// bytes). `Block(Caps).capturesFrom` gives it back typed.
 pub fn capturesAddr(blockPtr: u64) u64 {
     return blockPtr + HEADER_SIZE;
 }
 
-// malloc + populate a descriptor.
+// malloc + populate a descriptor
 fn newDescriptor(size: u64) u64 {
     var desc: *mut BlockDescriptor = malloc(@sizeOf(BlockDescriptor)) as *mut BlockDescriptor;
     desc.* = BlockDescriptor { reserved: 0, size: size };
@@ -105,7 +83,6 @@ pub fn Block(Captures: type) type {
     };
 }
 
-// Copy a block to the heap (or bump its refcount). Pair with release().
 pub fn copy(blockPtr: u64) u64 {
     return _Block_copy(blockPtr);
 }
@@ -113,10 +90,6 @@ pub fn copy(blockPtr: u64) u64 {
 pub fn release(blockPtr: u64) {
     _Block_release(blockPtr);
 }
-
-// ---------------------------------------------------------------------------
-// Invoking blocks by pointer (ours or anyone else's): the invoke fn
-// pointer lives at offset 16 and takes the block pointer as arg 0.
 
 pub const Inv0 = union { addr: u64, f: fn(u64) u64 };
 pub const Inv1 = union { addr: u64, f: fn(u64, u64) u64 };
@@ -128,6 +101,7 @@ fn invokeAddr(blockPtr: u64) u64 {
     return p.*;
 }
 
+// TODO: do only invoke()
 pub fn invoke0(blockPtr: u64) u64 {
     var caster: Inv0 = Inv0 { addr: invokeAddr(blockPtr) };
     var f: fn(u64) u64 = caster.f;
