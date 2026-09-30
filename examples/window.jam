@@ -1,12 +1,9 @@
-// jam-objc example: open a native macOS window.
+// jam run -lobjc window.jam
 //
 // Builds the Cocoa app the long way — straight through the Objective-C
 // runtime — to show jam-objc driving real AppKit objects: an
 // NSApplication with a working menu (Cmd-Q quits), a custom app
 // delegate (closing the window quits), and an NSWindow holding a label.
-//
-// Build & run (from this folder):
-//     jam run -lobjc window.jam
 //
 // AppKit isn't linked (jam has no -framework flag), so we load it at
 // runtime with objc.loadAppKit(). Only -lobjc is needed at link time.

@@ -1,4 +1,4 @@
-// jam-objc example: define an Objective-C class at runtime.
+// jam run -lobjc subclass.jam
 //
 // Builds JamCounter — an NSObject subclass with a `count` ivar and
 // increment/value methods — entirely through the runtime
@@ -6,9 +6,6 @@
 // uses it like any other ObjC class. The count lives in the ivar as an
 // NSNumber, so every instance carries its own state and the method
 // bodies are ordinary jam fns called back through the C ABI.
-//
-// Build & run (from this folder):
-//     jam run -lobjc subclass.jam
 
 const objc = import("../objc");
 const { Object, Class, sel } = import("../objc");

@@ -1,13 +1,10 @@
-// jam-objc example: custom drawing in a native macOS window.
+// jam run -lobjc draw.jam
 //
 // Subclasses NSView at runtime (allocateClassPair + replaceMethod) and
 // overrides -drawRect: with a jam fn that paints through NSColor and
 // NSBezierPath — three translucent circles over a dark background.
 // AppKit calls straight back into jam code every time the view redraws
 // (try resizing the window).
-//
-// Build & run (from this folder):
-//     jam run -lobjc draw.jam
 
 const objc = import("../objc");
 const { Object, Class, sel } = import("../objc");

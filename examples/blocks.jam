@@ -1,13 +1,10 @@
-// jam-objc example: pass a block to an Objective-C API.
+// jam run -lobjc blocks.jam
 //
 // Sorts an NSArray with -sortedArrayUsingComparator:, the comparator
 // being a jam-built block (block.jam). The block literal lives on the
 // stack, its captures are plain data (a `descending` flag), and
 // Foundation calls back into the jam fn through the block's invoke
 // pointer — same shape for both sort directions, the capture decides.
-//
-// Build & run (from this folder):
-//     jam run -lobjc blocks.jam
 
 const objc = import("../objc");
 const { Object, Class, sel } = import("../objc");

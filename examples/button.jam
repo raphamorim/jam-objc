@@ -1,13 +1,10 @@
-// jam-objc example: an interactive click counter (target/action).
+// jam run -lobjc button.jam
 //
 // A native window with an NSButton wired to a controller class built at
 // runtime: every click lands in a jam fn (the -clicked: IMP), which
 // bumps a count kept in an ivar and rewrites the label above the
 // button. Cocoa's whole target/action machinery, no Objective-C
 // compiler involved.
-//
-// Build & run (from this folder):
-//     jam run -lobjc button.jam
 
 const objc = import("../objc");
 const { Object, Class, sel } = import("../objc");

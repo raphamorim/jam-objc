@@ -1,12 +1,9 @@
-// jam-objc example: a quick tour of Foundation from the console.
+// jam run -lobjc foundation.jam
 //
 // No GUI — NSString, NSNumber, NSDate and NSArray driven straight
 // through objc_msgSend, plus fast enumeration and an autorelease pool.
 // A good first stop to see the msgSend shapes: ids as u64, f64 both
 // directions, selector and object arguments.
-//
-// Build & run (from this folder):
-//     jam run -lobjc foundation.jam
 //
 // Foundation isn't linked (jam has no -framework flag), so it's loaded
 // at runtime with objc.loadFoundation(). Only -lobjc links.
