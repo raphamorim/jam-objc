@@ -1,7 +1,8 @@
 JAM ?= jam
 
 .PHONY: test run-example-foundation run-example-subclass run-example-blocks \
-        run-example-window run-example-draw run-example-button clean
+        run-example-window run-example-draw run-example-button \
+        run-example-files clean
 
 test:
 	$(JAM) test -lobjc tests.jam
@@ -29,6 +30,10 @@ run-example-draw:
 # Interactive click counter — NSButton target/action into a jam fn.
 run-example-button:
 	cd examples && $(JAM) run -lobjc button.jam
+
+# List the current directory through NSFileManager.
+run-example-files:
+	cd examples && $(JAM) run -lobjc files.jam
 
 clean:
 	rm -f output output.o examples/output examples/output.o

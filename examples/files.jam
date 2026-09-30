@@ -1,0 +1,76 @@
+// jam run -lobjc files.jam
+const objc = import("../objc");
+const { Object, Class, sel, AutoreleasePool } = import("../objc");
+const { Iterator } = import("../iterator");
+const { Option } = import("std").option;
+const { println } = import("std/fmt");
+
+fn mustClass(name: []u8) Class {
+    match (objc.getClass(name)) {
+        Some(c) {
+            return c;
+        }
+        None {
+            return Class { value: 0 };
+        }
+    }
+    return Class { value: 0 };
+}
+
+fn nsString(s: []u8) Object {
+    const cls: Class = mustClass("NSString");
+    return cls.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
+}
+
+fn utf8(obj: Object) []u8 {
+    const p: u64 = obj.msgSend(u64, sel("UTF8String"));
+    return objc.cstr(p as *const[] u8);
+}
+
+fn main() {
+    if (!objc.loadFoundation()) {
+        println("failed to load Foundation");
+        return;
+    }
+
+    var pool: AutoreleasePool = AutoreleasePool.init();
+
+    const fmCls: Class = mustClass("NSFileManager");
+    const fm: Object = fmCls.msgSend(Object, sel("defaultManager"));
+
+    const cwd: Object = fm.msgSend(Object, sel("currentDirectoryPath"));
+    const cwdTxt: []u8 = utf8(cwd);
+    println("listing {cwdTxt}");
+
+    const items: Object = fm.msgSend(Object,
+        sel("contentsOfDirectoryAtPath:error:"), nsString(".").value, 0 as u64);
+    if (items.isNil()) {
+        println("failed to list directory");
+        return;
+    }
+
+    const sizeKey: Object = nsString("NSFileSize");
+    var count: u64 = 0;
+    var total: u64 = 0;
+    var it: Iterator = Iterator.init(items);
+    loop {
+        match (it.next()) {
+            Some(name) {
+                const nameTxt: []u8 = utf8(name);
+                const attrs: Object = fm.msgSend(Object,
+                    sel("attributesOfItemAtPath:error:"), name.value, 0 as u64);
+                var size: u64 = 0;
+                if (!attrs.isNil()) {
+                    const sizeNum: Object = attrs.msgSend(Object,
+                        sel("objectForKey:"), sizeKey.value);
+                    size = sizeNum.msgSend(u64, sel("unsignedLongValue"));
+                }
+                println("  {nameTxt} ({size} bytes)");
+                count = count + 1;
+                total = total + size;
+            }
+            None { break; }
+        }
+    }
+    println("{count} entries, {total} bytes");
+}
