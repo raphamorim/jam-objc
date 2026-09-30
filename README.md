@@ -82,25 +82,24 @@ Only `-lobjc` is needed at link time. One side effect (also visible in plain C):
 
 ## Blocks
 
-Simplified relative to zig-objc (no comptime, so no synthesized
-copy/dispose helpers or signature strings): captures must be plain data,
-and captured object pointers are not auto-retained on `_Block_copy`.
-
 ```jam
 const block = import("block");
-const { Block } = import("block");
 
-const Caps = struct { x: i32, y: i32 };
-const AddBlock = Block(Caps);
+const Caps = struct {
+    x: i32,
+    y: i32
+};
 
+const AddBlock = block.Block(Caps);
 fn addImpl(ctx: u64) i32 {
-    var caps: *const Caps = AddBlock.capturesFrom(ctx);
+    var caps = AddBlock.capturesFrom(ctx);
     return caps.*.x + caps.*.y;
 }
 
-var b: AddBlock = AddBlock.init(Caps { x: 2, y: 3 }, addImpl as u64);
-block.invoke0i32((&b) as u64);   // 5
-b.deinit();                      // only after all copies are released
-```
+var b = AddBlock.init(Caps { x: 2, y: 3 }, addImpl as u64);
 
-Pass `(&b) as u64` as a method argument wherever ObjC expects a block.
+block.invoke0i32((&b) as u64); // 5
+
+// TODO: hook this up in jam drop system
+b.deinit();
+```
