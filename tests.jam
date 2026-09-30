@@ -12,18 +12,30 @@ const { Block } = import("block");
 
 fn mustClass(name: []u8) Class {
     match (objc.getClass(name)) {
-        Option(Class).Some(found) { return found; }
-        Option(Class).None        { assert(0, 1); }
+        Some(found) {
+            return found;
+        }
+        None {
+            assert(0, 1);
+        }
     }
-    return Class { value: 0 };
+    return Class {
+        value: 0
+    };
 }
 
 fn mustProtocol(name: []u8) Protocol {
     match (objc.getProtocol(name)) {
-        Option(Protocol).Some(found) { return found; }
-        Option(Protocol).None        { assert(0, 1); }
+        Some(found) {
+            return found;
+        }
+        None {
+            assert(0, 1);
+        }
     }
-    return Protocol { value: 0 };
+    return Protocol {
+        value: 0
+    };
 }
 
 fn retainCount(obj: Object) u64 {
@@ -32,44 +44,45 @@ fn retainCount(obj: Object) u64 {
 
 fn nsString(s: []u8) Object {
     objc.loadFoundation();
-    const cls: Class = mustClass("NSString");
+    const cls = mustClass("NSString");
     return cls.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
 }
 
 fn utf8(obj: Object) []u8 {
-    const p: u64 = obj.msgSend(u64, sel("UTF8String"));
+    const p = obj.msgSend(u64, sel("UTF8String"));
     return objc.cstr(p as *const[] u8);
 }
 
-// --- sel.zig ----------------------------------------------------------------
-
 tfn selRegisterAndName() {
-    const s: Sel = Sel.registerName("yo");
+    const s = Sel.registerName("yo");
     assert(eq(s.getName(), "yo") as u8, 1);
 }
 
-// --- class.zig: getClass ----------------------------------------------------
-
 tfn getClassFound() {
     match (objc.getClass("NSObject")) {
-        Option(Class).Some(found) { assert((found.value != 0) as u8, 1); }
-        Option(Class).None        { assert(0, 1); }
+        Some(found) {
+            assert((found.value != 0) as u8, 1);
+        }
+        None {
+            assert(0, 1);
+        }
     }
 }
 
 tfn getClassMissing() {
     match (objc.getClass("NoWay")) {
-        Option(Class).Some(found) { assert(found.value, 1); }   // fail
-        Option(Class).None        { assert(1, 1); }
+        Some(found) {
+            assert(found.value, 1);
+        }
+        None {
+            assert(1, 1);
+        }
     }
 }
 
-// --- class.zig / object.zig: msgSend basics ----------------------------------
-
 tfn allocInitDealloc() {
-    const NSObject: Class = mustClass("NSObject");
-
-    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    const NSObject = mustClass("NSObject");
+    const obj = NSObject.msgSend(Object, sel("alloc"));
     assert((obj.value != 0) as u8, 1);
     assert(eq(obj.getClassName(), "NSObject") as u8, 1);
     obj.msgSend(u64, sel("init"));
@@ -77,22 +90,27 @@ tfn allocInitDealloc() {
 }
 
 tfn objectGetClass() {
-    const NSObject: Class = mustClass("NSObject");
-    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    const NSObject = mustClass("NSObject");
+    const obj = NSObject.msgSend(Object, sel("alloc"));
     obj.msgSend(u64, sel("init"));
 
     match (obj.getClass()) {
-        Option(Class).Some(cls) { assert((cls.value == NSObject.value) as u8, 1); }
-        Option(Class).None      { assert(0, 1); }
+        Some(cls) {
+            assert(
+                (cls.value == NSObject.value) as u8,
+                1
+            );
+        }
+        None {
+            assert(0, 1);
+        }
     }
     obj.msgSend(void, sel("dealloc"));
 }
 
-// --- object.zig: retain/release ----------------------------------------------
-
 tfn retainRelease() {
-    const NSObject: Class = mustClass("NSObject");
-    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    const NSObject = mustClass("NSObject");
+    const obj = NSObject.msgSend(Object, sel("alloc"));
     obj.msgSend(u64, sel("init"));
     assert(retainCount(obj), 1);
 
@@ -105,58 +123,61 @@ tfn retainRelease() {
     obj.msgSend(void, sel("dealloc"));
 }
 
-// --- object.zig: msgSend with wrapper args -----------------------------------
-
 tfn msgSendWithClassAndSelArgs() {
-    const NSObject: Class = mustClass("NSObject");
-    const obj: Object = NSObject.msgSend(Object, sel("alloc"));
+    const NSObject = mustClass("NSObject");
+    const obj = NSObject.msgSend(Object, sel("alloc"));
     obj.msgSend(u64, sel("init"));
 
     // -[NSObject isKindOfClass:]
-    const isKind: u64 = obj.msgSend(u64, sel("isKindOfClass:"), NSObject.value);
+    const isKind = obj.msgSend(u64, sel("isKindOfClass:"), NSObject.value);
     assert((isKind & 0xFF) as u8, 1);
 
     // -[NSObject respondsToSelector:]
-    const responds: u64 = obj.msgSend(u64, sel("respondsToSelector:"), sel("init").value);
+    const responds = obj.msgSend(u64, sel("respondsToSelector:"), sel("init").value);
     assert((responds & 0xFF) as u8, 1);
 
     obj.msgSend(void, sel("dealloc"));
 }
 
-// --- class.zig: getProperty / copyPropertyList -------------------------------
-
 tfn classGetProperty() {
     objc.loadFoundation();
-    const NSObject: Class = mustClass("NSObject");
+    const NSObject = mustClass("NSObject");
 
     match (NSObject.getProperty("className")) {
-        Option(Property).Some(prop) { assert(eq(prop.getName(), "className") as u8, 1); }
-        Option(Property).None       { assert(0, 1); }
+        Some(prop) {
+            assert(
+                eq(prop.getName(), "className") as u8,
+                1
+            );
+        }
+        None {
+            assert(0, 1);
+        }
     }
 
     match (NSObject.getProperty("nope")) {
-        Option(Property).Some(prop) { assert(prop.value, 1); }   // fail
-        Option(Property).None       { assert(1, 1); }
+        Some(prop) {
+            assert(prop.value, 1);
+        }
+        None {
+            assert(1, 1);
+        }
     }
 }
 
 tfn copyPropertyList() {
     objc.loadFoundation();
-    const NSObject: Class = mustClass("NSObject");
+    const NSObject = mustClass("NSObject");
     var list = NSObject.copyPropertyList();
     assert((list.len > 0) as u8, 1);
     assert((list.at(0).value != 0) as u8, 1);
-    // list drops here, freeing the runtime allocation
+    // note: list drops here, freeing the runtime allocation
 }
-
-// --- protocol.zig -------------------------------------------------------------
 
 tfn protocols() {
     objc.loadFoundation();
-    // zig-objc uses NSFileManagerDelegate here, but a protocol is only
-    // registered when a loaded image *references* it; with Foundation
-    // dlopen'd (instead of linked) NSFileManagerDelegate is absent even
-    // in plain C. NSURLSessionDelegate is always registered.
+    // mitchell's zig project uses NSFileManagerDelegate here, but a protocol is only registered when a loaded image *references* it
+    //with Foundation dlopen'd (instead of linked) NSFileManagerDelegate is absent even in plain C, NSURLSessionDelegate is always registered
     const urlProto: Protocol = mustProtocol("NSURLSessionDelegate");
     assert(eq(urlProto.getName(), "NSURLSessionDelegate") as u8, 1);
 
@@ -166,8 +187,12 @@ tfn protocols() {
     assert(urlProto.isEqual(objProto) as u8, 0);
 
     match (objProto.getProperty("hash", true, true)) {
-        Option(Property).Some(prop) { assert(eq(prop.getName(), "hash") as u8, 1); }
-        Option(Property).None       { assert(0, 1); }
+        Some(prop) {
+            assert(eq(prop.getName(), "hash") as u8, 1);
+        }
+        None {
+            assert(0, 1);
+        }
     }
 }
 
@@ -178,8 +203,6 @@ tfn classConformsToProtocol() {
     assert(NSObject.conformsToProtocol(objProto) as u8, 1);
 }
 
-// --- class.zig: allocateClassPair + replaceMethod ------------------------------
-
 fn hash69(target: u64, op: u64) u64 {
     return 69;
 }
@@ -189,8 +212,8 @@ tfn allocateClassPairAndReplaceMethod() {
 
     var myClass: Class = Class { value: 0 };
     match (objc.allocateClassPair(NSObject, "jam_object")) {
-        Option(Class).Some(cls) { myClass = cls; }
-        Option(Class).None      { assert(0, 1); }
+        Some(cls) { myClass = cls; }
+        None      { assert(0, 1); }
     }
 
     myClass.replaceMethod("hash", hash69 as u64);
@@ -203,8 +226,6 @@ tfn allocateClassPairAndReplaceMethod() {
     objc.disposeClassPair(myClass);
 }
 
-// --- class.zig: addMethod -------------------------------------------------------
-
 fn myAddition(target: u64, op: u64, a: i32, b: i32) i32 {
     return a + b;
 }
@@ -214,8 +235,8 @@ tfn addMethod() {
 
     var myClass: Class = Class { value: 0 };
     match (objc.allocateClassPair(NSObject, "jam_class")) {
-        Option(Class).Some(cls) { myClass = cls; }
-        Option(Class).None      { assert(0, 1); }
+        Some(cls) { myClass = cls; }
+        None      { assert(0, 1); }
     }
 
     assert(myClass.addMethod("my_addition", myAddition as u64, "i@:ii") as u8, 1);
@@ -227,31 +248,27 @@ tfn addMethod() {
     obj.msgSend(void, sel("dealloc"));
 }
 
-// --- class.zig: ivars ------------------------------------------------------------
-
 tfn ivars() {
     objc.loadFoundation();
     const NSObject: Class = mustClass("NSObject");
 
     var myClass: Class = Class { value: 0 };
     match (objc.allocateClassPair(NSObject, "jam_ivar_object")) {
-        Option(Class).Some(cls) { myClass = cls; }
-        Option(Class).None      { assert(0, 1); }
+        Some(cls) { myClass = cls; }
+        None      { assert(0, 1); }
     }
 
     assert(myClass.addIvar("my_ivar") as u8, 1);
     objc.registerClassPair(myClass);
 
     const obj: Object = myClass.msgSend(Object, sel("alloc"));
-    const ivarVal: Object = nsString("69---nice");
+    const ivarVal: Object = nsString("69!!!!yey!!!nice");
     obj.setInstanceVariable("my_ivar", ivarVal);
     const back: Object = obj.getInstanceVariable("my_ivar");
-    assert(eq(utf8(back), "69---nice") as u8, 1);
+    assert(eq(utf8(back), "69!!!!yey!!!nice") as u8, 1);
 
     obj.msgSend(void, sel("dealloc"));
 }
-
-// --- object.zig: property helpers -------------------------------------------------
 
 tfn getPropertyHelper() {
     objc.loadFoundation();
@@ -265,14 +282,12 @@ tfn getPropertyHelper() {
     obj.msgSend(void, sel("dealloc"));
 }
 
-// --- msg_send.zig: msgSendSuper ----------------------------------------------------
-
 fn subclassInit(target: u64, op: u64) u64 {
     const obj: Object = Object.fromId(target);
     var NSObject: Class = Class { value: 0 };
     match (objc.getClass("NSObject")) {
-        Option(Class).Some(c) { NSObject = c; }
-        Option(Class).None    { return 0; }
+        Some(c) { NSObject = c; }
+        None    { return 0; }
     }
     obj.msgSendSuper(u64, NSObject, sel("init"));
     return target;
@@ -283,8 +298,8 @@ tfn subclassSuperInit() {
 
     var sub: Class = Class { value: 0 };
     match (objc.allocateClassPair(NSObject, "jam_subclass")) {
-        Option(Class).Some(cls) { sub = cls; }
-        Option(Class).None      { assert(0, 1); }
+        Some(cls) { sub = cls; }
+        None      { assert(0, 1); }
     }
 
     sub.replaceMethod("init", subclassInit as u64);
@@ -297,8 +312,6 @@ tfn subclassSuperInit() {
 
     objc.disposeClassPair(sub);
 }
-
-// --- floats over the msgSend boundary ----------------------------------------------
 
 tfn floatReturn() {
     objc.loadFoundation();
@@ -315,33 +328,23 @@ tfn floatArgRoundTrip() {
     assert((num.msgSend(f64, sel("doubleValue")) == 3.5) as u8, 1);
 }
 
-// --- object.zig: tagged pointers -----------------------------------------------------
-
 tfn taggedPointer() {
     objc.loadFoundation();
     const NSNumber: Class = mustClass("NSNumber");
-    // Small NSNumbers are tagged pointers — not heap objects. They must
-    // still message correctly through our u64-based Object.
+    // small NSNumbers are tagged pointers, not heap objects
     const num: Object = NSNumber.msgSend(Object, sel("numberWithChar:"), 5 as u64);
     assert(num.msgSend(u64, sel("charValue")) & 0xFF, 5);
 }
-
-// --- autorelease.zig ------------------------------------------------------------------
 
 tfn autoreleasePool() {
     objc.loadFoundation();
     var pool: AutoreleasePool = AutoreleasePool.init();
     assert((pool.ptr != 0) as u8, 1);
-    // `stringWithUTF8String:` already returns an autoreleased string —
-    // it's reclaimed when the pool pops at scope exit. (Calling
-    // `autorelease` on it again would double-release once the pool's
-    // `cfn drop` actually pops, so we don't.)
+    // stringWithUTF8String already returns an autoreleased string it's reclaimed when the pool pops at scope exit
     const pooled: Object = nsString("autoreleased");
     assert((pooled.value != 0) as u8, 1);
-    // pool's cfn drop pops here, releasing the autoreleased string.
+    // pool's cfn drop pops here, releasing the autoreleased string!!!
 }
-
-// --- iterator.zig ----------------------------------------------------------------------
 
 tfn iterateNSArray() {
     objc.loadFoundation();
@@ -358,22 +361,19 @@ tfn iterateNSArray() {
     var it: Iterator = Iterator.init(array);
     loop {
         match (it.next()) {
-            Option(Object).Some(elem) {
+            Some(elem) {
                 result = result * 10 + elem.msgSend(u64, sel("intValue"));
             }
-            Option(Object).None { break; }
+            None { break; }
         }
     }
     assert(result, 123456789);
 }
 
-// --- block.zig ---------------------------------------------------------------------------
-
 const AddCaps = struct { x: i32, y: i32 };
 const AddBlock = Block(AddCaps);
 
 fn addBlockImpl(ctx: u64) i32 {
-    // The cast to the captures type lives inside the generic now.
     var caps: *const AddCaps = AddBlock.capturesFrom(ctx);
     return caps.*.x + caps.*.y;
 }
@@ -390,11 +390,7 @@ tfn blockInvoke() {
     b.deinit();
 }
 
-// --- big structs by value (48 bytes, past the register file) -------------------
-
-// NSAffineTransformStruct: six CGFloats. Not an HFA (more than four
-// members), so the C ABI passes it as a caller-copied pointer and
-// returns it through sret in x8 — the memory class end to end.
+// NSAffineTransformStruct: six CGFloats, not an HFA (homogeneous floating-point aggregate)... so the C ABI passes it as a caller-copied pointer and returns it through sret in x8
 const TransformStruct = struct {
     m11: f64, m12: f64, m21: f64, m22: f64, tx: f64, ty: f64,
 };
@@ -402,7 +398,7 @@ const TransformStruct = struct {
 tfn bigStructByValueRoundTrip() {
     objc.loadFoundation();
     const cls: Class = mustClass("NSAffineTransform");
-    const t: Object = cls.msgSend(Object, sel("transform"));   // identity
+    const t: Object = cls.msgSend(Object, sel("transform"));
 
     const m: TransformStruct = t.msgSend(TransformStruct, sel("transformStruct"));
     assert((m.m11 == 1.0) as u8, 1);
