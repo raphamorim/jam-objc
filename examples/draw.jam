@@ -1,11 +1,4 @@
 // jam run -lobjc draw.jam
-//
-// Subclasses NSView at runtime (allocateClassPair + replaceMethod) and
-// overrides -drawRect: with a jam fn that paints through NSColor and
-// NSBezierPath — three translucent circles over a dark background.
-// AppKit calls straight back into jam code every time the view redraws
-// (try resizing the window).
-
 const objc = import("../objc");
 const { Object, Class, sel } = import("../objc");
 const { Option } = import("std").option;
@@ -22,56 +15,51 @@ const NSRect = struct { x: f64, y: f64, w: f64, h: f64 };
 
 fn mustClass(name: []u8) Class {
     match (objc.getClass(name)) {
-        Some(c) { return c; }
-        None    { return Class { value: 0 }; }
+        Some(c) {
+            return c;
+        }
+        None {
+            return Class {
+                value: 0
+            };
+        }
     }
     return Class { value: 0 };
 }
 
 fn allocInit(name: []u8) Object {
-    const c: Class = mustClass(name);
+    const c = mustClass(name);
     const obj: Object = c.msgSend(Object, sel("alloc"));
     return obj.msgSend(Object, sel("init"));
 }
 
 fn nsString(s: []u8) Object {
-    const nsstr: Class = mustClass("NSString");
+    const nsstr = mustClass("NSString");
     return nsstr.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
 }
 
-// --- drawing -----------------------------------------------------------
-
-// [NSColor colorWithSRGBRed:...] then -setFill — the fill color for
-// whatever gets filled next. Four f64 args ride in v0–v3.
 fn setFill(r: f64, g: f64, b: f64, a: f64) {
-    const cls: Class = mustClass("NSColor");
+    const cls = mustClass("NSColor");
     const color: Object = cls.msgSend(Object,
         sel("colorWithSRGBRed:green:blue:alpha:"), r, g, b, a);
     color.msgSend(void, sel("setFill"));
 }
 
-// Fill the oval inscribed in `rect` — NSRect travels by value into
-// +bezierPathWithOvalInRect:.
 fn fillOval(rect: NSRect) {
-    const cls: Class = mustClass("NSBezierPath");
+    const cls = mustClass("NSBezierPath");
     const path: Object = cls.msgSend(Object,
         sel("bezierPathWithOvalInRect:"), rect);
     path.msgSend(void, sel("fill"));
 }
 
-// The -drawRect: override. AppKit invokes it through the C ABI like any
-// IMP; the NSRect argument arrives in v0–v3 and is simply ignored — we
-// repaint from the view's bounds instead.
 fn canvasDrawRect(target: u64, op: u64) {
     const view: Object = Object.fromId(target);
     const bounds: NSRect = view.msgSend(NSRect, sel("bounds"));
 
-    // Dark background across the whole view.
     setFill(0.10, 0.10, 0.13, 1.0);
-    const cls: Class = mustClass("NSBezierPath");
+    const cls = mustClass("NSBezierPath");
     cls.msgSend(void, sel("fillRect:"), bounds);
 
-    // Three overlapping translucent circles, centered as a group.
     const d: f64 = 180.0;
     const cx: f64 = (bounds.w - d) / 2.0;
     const cy: f64 = (bounds.h - d) / 2.0;
@@ -84,10 +72,9 @@ fn canvasDrawRect(target: u64, op: u64) {
     fillOval(NSRect { x: cx, y: cy - 50.0, w: d, h: d });
 }
 
-// NSView subclass with our drawRect:, built at runtime.
 fn defineCanvasClass() Class {
-    const nsview: Class = mustClass("NSView");
-    var cls: Class = Class { value: 0 };
+    const nsview = mustClass("NSView");
+    var cls = Class { value: 0 };
     match (objc.allocateClassPair(nsview, "JamCanvas")) {
         Option(Class).Some(c) { cls = c; }
         Option(Class).None    { return cls; }
@@ -97,8 +84,6 @@ fn defineCanvasClass() Class {
     return cls;
 }
 
-// --- boilerplate shared with window.jam ---------------------------------
-
 fn installMenu(app: Object) {
     const menubar: Object = allocInit("NSMenu");
     const appItem: Object = allocInit("NSMenuItem");
@@ -106,7 +91,7 @@ fn installMenu(app: Object) {
     app.msgSend(void, sel("setMainMenu:"), menubar.value);
 
     const appMenu: Object = allocInit("NSMenu");
-    const itemCls: Class = mustClass("NSMenuItem");
+    const itemCls = mustClass("NSMenuItem");
     const quitItem: Object = itemCls.msgSend(Object, sel("alloc"));
     quitItem.msgSend(u64,
         sel("initWithTitle:action:keyEquivalent:"),
@@ -117,12 +102,12 @@ fn installMenu(app: Object) {
 }
 
 fn appShouldTerminate(selfId: u64, op: u64, sender: u64) u8 {
-    return 1;  // YES
+    return 1;
 }
 
 fn installDelegate(app: Object) {
-    const nsobject: Class = mustClass("NSObject");
-    var delCls: Class = Class { value: 0 };
+    const nsobject = mustClass("NSObject");
+    var delCls = Class { value: 0 };
     match (objc.allocateClassPair(nsobject, "JamDrawDelegate")) {
         Option(Class).Some(c) { delCls = c; }
         Option(Class).None    { return; }
@@ -141,7 +126,7 @@ fn main() {
         return;
     }
 
-    const appCls: Class = mustClass("NSApplication");
+    const appCls = mustClass("NSApplication");
     const app: Object = appCls.msgSend(Object, sel("sharedApplication"));
     app.msgSend(void, sel("setActivationPolicy:"),
                 NSApplicationActivationPolicyRegular);
@@ -152,15 +137,14 @@ fn main() {
                        NSWindowStyleMaskMiniaturizable |
                        NSWindowStyleMaskResizable;
     var frame: NSRect = NSRect { x: 0.0, y: 0.0, w: 480.0, h: 360.0 };
-    const winCls: Class = mustClass("NSWindow");
+    const winCls = mustClass("NSWindow");
     const winAlloc: Object = winCls.msgSend(Object, sel("alloc"));
     const win: Object = winAlloc.msgSend(Object,
         sel("initWithContentRect:styleMask:backing:defer:"),
         frame, style, NSBackingStoreBuffered, 0 as i64);
     win.msgSend(void, sel("setTitle:"), nsString("jam-objc draw").value);
 
-    // The whole content view is our runtime-built canvas.
-    const canvasCls: Class = defineCanvasClass();
+    const canvasCls = defineCanvasClass();
     if (canvasCls.value == 0) {
         println("failed to allocate JamCanvas");
         return;
@@ -174,6 +158,6 @@ fn main() {
     win.msgSend(void, sel("makeKeyAndOrderFront:"), 0 as u64);
     app.msgSend(void, sel("activateIgnoringOtherApps:"), 1 as u64);
 
-    println("window open — jam paints every drawRect:; Cmd-Q to quit");
+    println("window open, jam paints every drawRect:; Cmd-Q to quit");
     app.msgSend(void, sel("run"));
 }

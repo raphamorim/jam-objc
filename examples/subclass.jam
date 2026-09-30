@@ -1,21 +1,16 @@
 // jam run -lobjc subclass.jam
-//
-// Builds JamCounter — an NSObject subclass with a `count` ivar and
-// increment/value methods — entirely through the runtime
-// (allocateClassPair / addIvar / addMethod / registerClassPair), then
-// uses it like any other ObjC class. The count lives in the ivar as an
-// NSNumber, so every instance carries its own state and the method
-// bodies are ordinary jam fns called back through the C ABI.
-
 const objc = import("../objc");
 const { Object, Class, sel } = import("../objc");
-const { Option } = import("std").option;
 const { println } = import("std/fmt");
 
 fn mustClass(name: []u8) Class {
     match (objc.getClass(name)) {
-        Option(Class).Some(c) { return c; }
-        Option(Class).None    { return Class { value: 0 }; }
+        Some(c) {
+            return c;
+        }
+        None {
+            return Class { value: 0 };
+        }
     }
     return Class { value: 0 };
 }
@@ -25,11 +20,6 @@ fn nsNumber(n: u64) Object {
     return cls.msgSend(Object, sel("numberWithUnsignedLong:"), n);
 }
 
-// --- JamCounter method implementations --------------------------------
-// Each IMP is a plain jam fn taking (self, _cmd, ...) as u64s, coerced
-// with `as u64` when installed; the runtime calls it like any C IMP.
-
-// - (id)init — chain to super, then zero the counter.
 fn counterInit(target: u64, op: u64) u64 {
     const self: Object = Object.fromId(target);
     self.msgSendSuper(u64, mustClass("NSObject"), sel("init"));
@@ -37,7 +27,6 @@ fn counterInit(target: u64, op: u64) u64 {
     return target;
 }
 
-// - (void)increment — read the NSNumber, store back n+1.  Encoding "v@:".
 fn counterIncrement(target: u64, op: u64) {
     const self: Object = Object.fromId(target);
     const boxed: Object = self.getInstanceVariable("count");
@@ -45,7 +34,6 @@ fn counterIncrement(target: u64, op: u64) {
     self.setInstanceVariable("count", nsNumber(n + 1));
 }
 
-// - (unsigned long)value — the current count.  Encoding "Q@:".
 fn counterValue(target: u64, op: u64) u64 {
     const self: Object = Object.fromId(target);
     const boxed: Object = self.getInstanceVariable("count");
@@ -55,13 +43,13 @@ fn counterValue(target: u64, op: u64) u64 {
 fn defineCounterClass() Class {
     var cls: Class = Class { value: 0 };
     match (objc.allocateClassPair(mustClass("NSObject"), "JamCounter")) {
-        Option(Class).Some(c) { cls = c; }
-        Option(Class).None    { return cls; }
+        Some(c) { cls = c; }
+        None    { return cls; }
     }
 
-    // Ivars and methods must land between allocate and register.
-    cls.addIvar("count");                          // one `id`-typed slot
-    cls.replaceMethod("init", counterInit as u64); // override NSObject's
+    // ivars and methods must land between allocate and register
+    cls.addIvar("count");
+    cls.replaceMethod("init", counterInit as u64);
     cls.addMethod("increment", counterIncrement as u64, "v@:");
     cls.addMethod("value", counterValue as u64, "Q@:");
     objc.registerClassPair(cls);
@@ -85,7 +73,6 @@ fn main() {
         return;
     }
 
-    // Two instances — state is per-object, in the ivar.
     const a: Object = newCounter(cls);
     const b: Object = newCounter(cls);
     for i in 0:3 {
@@ -98,7 +85,6 @@ fn main() {
     const bVal: u64 = b.msgSend(u64, sel("value"));
     println("{name}: a counted to {aVal}, b counted to {bVal}");
 
-    // It's a real ObjC class — runtime introspection works on it.
     const responds: bool = cls.respondsToSelector(sel("increment"));
     const size: u64 = cls.getInstanceSize();
     println("respondsToSelector(increment): {responds}; instance size: {size} bytes");

@@ -1,11 +1,4 @@
 // jam run -lobjc button.jam
-//
-// A native window with an NSButton wired to a controller class built at
-// runtime: every click lands in a jam fn (the -clicked: IMP), which
-// bumps a count kept in an ivar and rewrites the label above the
-// button. Cocoa's whole target/action machinery, no Objective-C
-// compiler involved.
-
 const objc = import("../objc");
 const { Object, Class, sel } = import("../objc");
 const { Option } = import("std").option;
@@ -44,13 +37,6 @@ fn nsNumber(n: u64) Object {
     return cls.msgSend(Object, sel("numberWithUnsignedLong:"), n);
 }
 
-// --- the controller ------------------------------------------------------
-// Runtime-built NSObject subclass holding the count and the label in
-// ivars. The action method is a jam fn AppKit calls on every click.
-
-// - (void)clicked:(id)sender — encoding "v@:@". stringWithFormat: is
-// variadic (wrong ABI for msgSend), so the label text is composed with
-// -stringByAppendingString: instead: "clicks: " + [count stringValue].
 fn controllerClicked(target: u64, op: u64, sender: u64) {
     const self: Object = Object.fromId(target);
 
@@ -83,8 +69,6 @@ fn defineControllerClass() Class {
     return cls;
 }
 
-// --- boilerplate shared with window.jam -----------------------------------
-
 fn installMenu(app: Object) {
     const menubar: Object = allocInit("NSMenu");
     const appItem: Object = allocInit("NSMenuItem");
@@ -102,16 +86,21 @@ fn installMenu(app: Object) {
     appItem.msgSend(void, sel("setSubmenu:"), appMenu.value);
 }
 
+// 1 means YES in case u wondering
 fn appShouldTerminate(selfId: u64, op: u64, sender: u64) u8 {
-    return 1;  // YES
+    return 1;
 }
 
 fn installDelegate(app: Object) {
     const nsobject: Class = mustClass("NSObject");
     var delCls: Class = Class { value: 0 };
     match (objc.allocateClassPair(nsobject, "JamButtonDelegate")) {
-        Option(Class).Some(c) { delCls = c; }
-        Option(Class).None    { return; }
+        Some(c) {
+            delCls = c;
+        }
+        None {
+            return;
+        }
     }
     delCls.addMethod("applicationShouldTerminateAfterLastWindowClosed:",
                      appShouldTerminate as u64, "B@:@");
@@ -158,7 +147,6 @@ fn main() {
     win.msgSend(void, sel("setTitle:"), nsString("jam-objc button").value);
     const contentView: Object = win.msgSend(Object, sel("contentView"));
 
-    // Controller instance: count starts at 0, label ivar wired below.
     const ctrlCls: Class = defineControllerClass();
     if (ctrlCls.value == 0) {
         println("failed to allocate JamClickController");
@@ -173,7 +161,6 @@ fn main() {
     contentView.msgSend(void, sel("addSubview:"), label.value);
     controller.setInstanceVariable("label", label);
 
-    // +buttonWithTitle:target:action: wires the click to our jam IMP.
     const btnCls: Class = mustClass("NSButton");
     const button: Object = btnCls.msgSend(Object,
         sel("buttonWithTitle:target:action:"),
@@ -187,6 +174,6 @@ fn main() {
     win.msgSend(void, sel("makeKeyAndOrderFront:"), 0 as u64);
     app.msgSend(void, sel("activateIgnoringOtherApps:"), 1 as u64);
 
-    println("window open — click the button; Cmd-Q to quit");
+    println("window open, click the button; Cmd-Q to quit");
     app.msgSend(void, sel("run"));
 }

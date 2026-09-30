@@ -1,13 +1,4 @@
 // jam run -lobjc foundation.jam
-//
-// No GUI — NSString, NSNumber, NSDate and NSArray driven straight
-// through objc_msgSend, plus fast enumeration and an autorelease pool.
-// A good first stop to see the msgSend shapes: ids as u64, f64 both
-// directions, selector and object arguments.
-//
-// Foundation isn't linked (jam has no -framework flag), so it's loaded
-// at runtime with objc.loadFoundation(). Only -lobjc links.
-
 const objc = import("../objc");
 const { Object, Class, sel, AutoreleasePool } = import("../objc");
 const { Iterator } = import("../iterator");
@@ -22,13 +13,11 @@ fn mustClass(name: []u8) Class {
     return Class { value: 0 };
 }
 
-// [NSString stringWithUTF8String:] — an autoreleased NSString.
 fn nsString(s: []u8) Object {
     const cls: Class = mustClass("NSString");
     return cls.msgSend(Object, sel("stringWithUTF8String:"), s.ptr as u64);
 }
 
-// Borrow an NSString's bytes back as a jam slice.
 fn utf8(obj: Object) []u8 {
     const p: u64 = obj.msgSend(u64, sel("UTF8String"));
     return objc.cstr(p as *const[] u8);
@@ -44,13 +33,10 @@ fn strings() {
 fn numbers() {
     const NSNumber: Class = mustClass("NSNumber");
 
-    // f64 rides the msgSend boundary in both directions.
+    // f64 rides the msgSend boundary in both directions
     const pi: Object = NSNumber.msgSend(Object, sel("numberWithDouble:"), 3.14159);
     const d: f64 = pi.msgSend(f64, sel("doubleValue"));
 
-    // Small NSNumbers are tagged pointers — the value is packed into
-    // the id itself, no heap object behind it. Object carries ids as
-    // plain u64s, so they message like anything else.
     const five: Object = NSNumber.msgSend(Object, sel("numberWithInt:"), 5 as u64);
     const back: u64 = five.msgSend(u64, sel("intValue"));
     const cls: []u8 = five.getClassName();
@@ -76,8 +62,6 @@ fn arrays() {
         array.msgSend(void, sel("addObject:"), num.value);
     }
 
-    // NSFastEnumeration through iterator.jam — the same protocol
-    // clang's `for (id x in array)` compiles down to.
     var sum: u64 = 0;
     var it: Iterator = Iterator.init(array);
     loop {
@@ -101,9 +85,7 @@ fn main() {
         return;
     }
 
-    // Everything below returns autoreleased objects; the pool pops
-    // (reclaiming them) when this scope ends — jam's linear drop calls
-    // objc_autoreleasePoolPop for us.
+    // jam's linear drop calls objc_autoreleasePoolPop
     var pool: AutoreleasePool = AutoreleasePool.init();
 
     strings();
